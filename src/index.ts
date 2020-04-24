@@ -1,1 +1,1 @@
-export = {};
+export { DB } from "./lib/db";

@@ -1,3 +1,2 @@
-declare const _default: {};
-export = _default;
+export { DB } from "./lib/db";
 //# sourceMappingURL=index.d.ts.map
