@@ -1,0 +1,21 @@
+{
+	"typescript.tsdk": "node_modules\\typescript\\lib",
+	"jest.showCoverageOnLoad": true,
+	"jest.enableCodeLens": true,
+	"jest.pathToJest": "npm run test:ts --",
+	"eslint.enable": true,
+	"editor.formatOnSave": true,
+	"editor.defaultFormatter": "esbenp.prettier-vscode",
+	"eslint.validate": [
+		"javascript",
+		"javascriptreact",
+		"typescript",
+		"typescriptreact"
+	],
+	"[typescript]": {
+		"editor.codeActionsOnSave": {
+			"source.organizeImports": true
+		}
+	},
+	"editor.rulers": [72, 80, 120]
+}

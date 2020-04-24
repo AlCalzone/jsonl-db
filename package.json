@@ -1,0 +1,75 @@
+{
+  "name": "jsonl-db",
+  "version": "0.0.1",
+  "description": "Simple JSONL-based key-value store",
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "files": [
+    "build/**/*.{js,d.ts,map}"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zwave-js/jsonl-db.git"
+  },
+  "keywords": [
+    "jsonl",
+    "ndjson",
+    "value",
+    "store"
+  ],
+  "author": {
+    "name": "AlCalzone",
+    "email": "d.griesel@gmx.net"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/zwave-js/jsonl-db/issues"
+  },
+  "homepage": "https://github.com/zwave-js/jsonl-db#readme",
+  "devDependencies": {
+    "@commitlint/cli": "^8.3.5",
+    "@commitlint/config-conventional": "^8.3.4",
+    "@fimbul/mithotyn": "^0.21.0",
+    "@fimbul/wotan": "^0.21.1",
+    "@types/fs-extra": "^8.1.0",
+    "@types/jest": "^25.1.4",
+    "@types/node": "^13.11.0",
+    "@typescript-eslint/eslint-plugin": "^2.24.0",
+    "@typescript-eslint/parser": "^2.24.0",
+    "commitizen": "^4.0.4",
+    "eslint": "^6.8.0",
+    "eslint-config-prettier": "^6.10.1",
+    "eslint-plugin-prettier": "^3.1.2",
+    "jest": "^25.4.0",
+    "prettier": "^2.0.1",
+    "source-map-support": "^0.5.19",
+    "ts-node": "^8.8.2",
+    "typescript": "^3.8.3"
+  },
+  "dependencies": {
+    "fs-extra": "^8.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "watch": "npm run build -- --watch",
+    "test:reset": "jest --clear-cache",
+    "test:ts": "jest",
+    "test:ci": "npm run test:ts -- --runInBand",
+    "test:watch": "npm run test:ts -- --watch",
+    "test": "npm run test:watch",
+    "lint:ts": "eslint --ext .ts src",
+    "lint:wotan": "wotan",
+    "lint": "npm run lint:ts && npm run lint:wotan",
+    "commit": "git-cz"
+  },
+  "husky": {
+    "hooks": {
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  },
+  "config": {
+    "commitizen": {
+      "path": "./node_modules/cz-conventional-changelog"
+    }
+  }
+}
