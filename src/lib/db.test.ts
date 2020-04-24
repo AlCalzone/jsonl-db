@@ -1,26 +1,49 @@
-import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
 import mockFs from "mock-fs";
 import { DB } from "./db";
 
+jest.mock("fs-extra", () => {
+	const originalFS = jest.requireActual("fs-extra");
+	return {
+		__esModule: true, // Use it when dealing with esModules
+		...originalFS,
+		createReadStream: jest.fn().mockImplementation((path, options) => {
+			// eslint-disable-next-line @typescript-eslint/no-var-requires
+			const { PassThrough } = require("stream");
+			const { /*fd,*/ encoding } = options;
+			// const file = fd
+			// 	? originalFS.readFileSync(fd, encoding)
+			// 	: originalFS.readFileSync(path, encoding);
+			const file = originalFS.readFileSync(path, encoding);
+			const ret = new PassThrough();
+			ret.write(file, encoding, () => {
+				ret.end();
+			});
+			return ret;
+		}),
+	};
+});
+
 describe("lib/db", () => {
 	describe("open()", () => {
-		beforeAll(() => {
+		beforeEach(() => {
 			mockFs({
 				yes:
 					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
 			});
 		});
-		afterAll(mockFs.restore);
+		afterEach(mockFs.restore);
 
 		it("checks if the given file exists and creates it if it doesn't", async () => {
 			const db = new DB("no");
 			await db.open();
+			await db.close();
 		});
 
 		it("reads the file if it exists", async () => {
 			const db = new DB("yes");
 			await db.open();
+			await db.close();
 		});
 
 		it("should contain the correct data", async () => {
@@ -36,17 +59,20 @@ describe("lib/db", () => {
 			db.forEach(spy);
 			expect(spy).toBeCalledTimes(1);
 			expect(spy.mock.calls[0].slice(0, 2)).toEqual(["2", "key2"]);
+
+			await db.close();
 		});
 	});
 
 	describe("clear()", () => {
+		const testFilename = "clear.jsonl";
 		let db: DB;
 		beforeAll(async () => {
 			mockFs({
-				yes:
+				[testFilename]:
 					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
 			});
-			db = new DB("yes");
+			db = new DB(testFilename);
 			await db.open();
 		});
 		afterAll(mockFs.restore);
@@ -57,20 +83,23 @@ describe("lib/db", () => {
 			expect(db.has("key1")).toBeFalse();
 			expect(db.has("key2")).toBeFalse();
 
-			// I'm not sure how to wait for the passthrough stream to be iterated
-			await wait(10);
+			// Force the stream to be flushed
+			await db.close();
 
-			await expect(fs.stat("yes")).resolves.toMatchObject({ size: 0 });
+			await expect(fs.stat(testFilename)).resolves.toMatchObject({
+				size: 0,
+			});
 		});
 	});
 
 	describe("delete()", () => {
+		const testFilename = "delete.jsonl";
 		let db: DB;
 		beforeEach(async () => {
 			mockFs({
-				yes: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new DB("yes");
+			db = new DB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -84,7 +113,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile("yes", "utf8")).resolves.toEndWith(
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toEndWith(
 				`{"k":"key2"}\n`,
 			);
 		});
@@ -99,7 +128,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile("yes", "utf8")).resolves.toEndWith(
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toEndWith(
 				`{"k":"key2"}\n{"k":"key1"}\n`,
 			);
 		});
@@ -111,17 +140,18 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile("yes", "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				`{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key2"}\n`,
 			);
 		});
 	});
 
 	describe("set()", () => {
+		const testFilename = "set.jsonl";
 		let db: DB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB("yes");
+			db = new DB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -134,7 +164,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile("yes", "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				`{"k":"key","v":true}\n`,
 			);
 		});
@@ -147,18 +177,19 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile("yes", "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				`{"k":"key2","v":true}\n{"k":"key1","v":1000}\n{"k":"key3","v":""}\n`,
 			);
 		});
 	});
 
 	describe("close()", () => {
+		const testFilename = "close.jsonl";
 		// The basic functionality is tested in the other suites
 		let db: DB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB("yes");
+			db = new DB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -169,11 +200,51 @@ describe("lib/db", () => {
 		});
 	});
 
+	describe("dump()", () => {
+		const testFilename = "dump.jsonl";
+		let db: DB;
+		let dumpdb: DB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: "",
+				[testFilename + ".dump"]: "",
+			});
+			db = new DB(testFilename);
+			dumpdb = new DB(testFilename + ".dump");
+		});
+		afterEach(async () => {
+			mockFs.restore();
+		});
+
+		it("writes a compressed version of the database", async () => {
+			await db.open();
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+				}
+			}
+			await db.dump();
+
+			await db.close();
+			await dumpdb.close();
+
+			await dumpdb.open();
+
+			for (const key of db.keys()) {
+				expect(dumpdb.has(key)).toBeTrue();
+				expect(dumpdb.get(key)).toBe(db.get(key));
+			}
+		});
+	});
+
 	describe("consistency checks", () => {
+		const testFilename = "checks.jsonl";
 		let db: DB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB("yes");
+			db = new DB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);

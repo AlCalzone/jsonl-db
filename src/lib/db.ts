@@ -7,7 +7,9 @@ import * as readline from "readline";
 import * as stream from "stream";
 
 export class DB<V extends unknown = unknown> {
-	public constructor(public readonly filename: string) {
+	public constructor(filename: string) {
+		this.filename = filename;
+		this.dumpFilename = this.filename + ".dump";
 		// Bind all map properties we can use directly
 		this.forEach = this._db.forEach.bind(this._db);
 		this.get = this._db.get.bind(this._db);
@@ -17,6 +19,9 @@ export class DB<V extends unknown = unknown> {
 		this.values = this._db.values.bind(this._db);
 		this[Symbol.iterator] = this._db[Symbol.iterator].bind(this._db);
 	}
+
+	public readonly filename: string;
+	public readonly dumpFilename: string;
 
 	private _db = new Map<string, V>();
 	// Declare all map properties we can use directly
@@ -33,12 +38,18 @@ export class DB<V extends unknown = unknown> {
 	}
 
 	private _fd: number | undefined;
-	private _writeLog: stream.PassThrough | undefined;
+	private _dumpFd: number | undefined;
+	private _writeBacklog: stream.PassThrough | undefined;
+	private _dumpBacklog: stream.PassThrough | undefined;
 
 	/** Opens a file and allows iterating over all lines */
 	private readLines(): stream.Readable {
 		const output = new stream.PassThrough({ objectMode: true });
-		const readStream = fs.createReadStream(this.filename, "utf8");
+		const readStream = fs.createReadStream(this.filename, {
+			encoding: "utf8",
+			fd: this._fd!,
+			// autoClose: false,
+		});
 		const rl = readline.createInterface(readStream);
 		rl.on("line", (line) => {
 			output.write(line);
@@ -73,51 +84,118 @@ export class DB<V extends unknown = unknown> {
 
 	public clear(): void {
 		this._db.clear();
-		this._writeLog!.write("");
+		this.write("");
 	}
 	public delete(key: string): boolean {
 		const ret = this._db.delete(key);
 		if (ret) {
 			// Something was deleted
-			this._writeLog!.write(JSON.stringify({ k: key }));
+			this.write(this.entryToLine(key));
 		}
 		return ret;
 	}
 	public set(key: string, value: V): this {
 		this._db.set(key, value);
-		this._writeLog!.write(JSON.stringify({ k: key, v: value }));
+		this.write(this.entryToLine(key, value));
 		return this;
+	}
+
+	private write(line: string): void {
+		this._writeBacklog!.write(line);
+		// If necessary, write to the dump backlog, so the dump doesn't miss any data
+		if (this._dumpBacklog && !this._dumpBacklog.destroyed) {
+			this._dumpBacklog.write(line);
+		}
+	}
+
+	private entryToLine(key: string, value?: V): string {
+		if (value !== undefined) {
+			return JSON.stringify({ k: key, v: value });
+		} else {
+			return JSON.stringify({ k: key });
+		}
+	}
+
+	/** Saves a compressed copy of the DB into `<filename>.dump` */
+	public async dump(): Promise<void> {
+		this._closeDumpPromise = createDeferredPromise();
+		// Open the file for writing (or truncate if it exists)
+		this._dumpFd = await fs.open(this.dumpFilename, "w+");
+		// And start dumping the DB
+		// Start by creating a dump backlog, so parallel writes will be remembered
+		this._dumpBacklog = new stream.PassThrough({ objectMode: true });
+		// Create a copy of the other entries in the DB
+		const entries = [...this._db];
+		// And persist them
+		for (const [key, value] of entries) {
+			await fs.appendFile(
+				this._dumpFd,
+				this.entryToLine(key, value) + "\n",
+			);
+		}
+		// In case there is any data in the backlog stream, persist that too
+		let line: string;
+		while (null !== (line = this._dumpBacklog.read())) {
+			await fs.appendFile(this._dumpFd, line + "\n");
+		}
+		this._dumpBacklog.destroy();
+		this._dumpBacklog = undefined;
+
+		// The dump backlog was closed, this means that the dump is finished.
+		// Close the file and resolve the close promise
+		await fs.close(this._dumpFd!);
+
+		this._dumpFd = undefined;
+		this._closeDumpPromise.resolve();
 	}
 
 	/** Asynchronously performs all write actions */
 	private async writeThread(): Promise<void> {
 		// TODO: use cork() and uncork()
-		this._writeLog = new stream.PassThrough({ objectMode: true });
-		for await (const action of this._writeLog as AsyncIterable<string>) {
+		this._writeBacklog = new stream.PassThrough({ objectMode: true });
+		for await (const action of this._writeBacklog as AsyncIterable<
+			string
+		>) {
 			if (action === "") {
-				await fs.ftruncate(this._fd!);
+				// Since we opened the file in append mode, we cannot truncate
+				// therefore close and open in write mode again
+				await fs.close(this._fd!);
+				this._fd = await fs.open(this.filename, "w+");
 			} else {
-				await fs.write(this._fd!, action + "\n");
+				await fs.appendFile(this._fd!, action + "\n");
 			}
 		}
-		// The write log was closed, this means that the DB is being closed
+		// The write backlog was closed, this means that the DB is being closed
 		// close the file and resolve the close promise
 		await fs.close(this._fd!);
-		this._closePromise?.resolve();
+		this._closeDBPromise?.resolve();
 	}
 
-	private _closePromise: DeferredPromise<void> | undefined;
+	private _closeDBPromise: DeferredPromise<void> | undefined;
+	private _closeDumpPromise: DeferredPromise<void> | undefined;
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
-		if (this._writeLog) {
-			this._closePromise = createDeferredPromise();
-			this._writeLog.end();
-			await this._closePromise;
+		if (this._writeBacklog) {
+			this._closeDBPromise = createDeferredPromise();
+			// Disable writing into the backlog stream
+			this._writeBacklog.end();
+			this._writeBacklog = undefined;
+			// Disable writing into the dump backlog stream
+			this._dumpBacklog?.end();
+			this._dumpBacklog = undefined;
+			await this._closeDBPromise;
 		}
+
+		// Also wait for a potential dump process to finish
+		if (this._closeDumpPromise) {
+			await this._closeDumpPromise;
+		}
+
 		// Reset all variables
-		this._closePromise = undefined;
+		this._closeDBPromise = undefined;
+		this._closeDumpPromise = undefined;
 		this._db.clear();
 		this._fd = undefined;
-		this._writeLog = undefined;
+		this._dumpFd = undefined;
 	}
 }
