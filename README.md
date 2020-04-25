@@ -52,7 +52,7 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.1.2 (2020-04-25)
 * `compress()` no longer overwrites the main file while the DB is being closed
 
 ### 0.1.1 (2020-04-25)
