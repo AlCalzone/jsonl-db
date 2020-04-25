@@ -41,7 +41,18 @@ jest.mock("fs-extra", () => {
 	};
 });
 
-function assertEqual(one: Map<any, any>, two: Map<any, any>) {
+function assertEqual<
+	T1 extends {
+		keys(): IterableIterator<string>;
+		has(key: string): boolean;
+		get(key: string): any;
+	},
+	T2 extends {
+		keys(): IterableIterator<string>;
+		has(key: string): boolean;
+		get(key: string): any;
+	}
+>(one: T1, two: T2) {
 	for (const key of one.keys()) {
 		expect(two.has(key)).toBeTrue();
 		expect(two.get(key)).toBe(one.get(key));
@@ -57,6 +68,12 @@ describe("lib/db", () => {
 			});
 		});
 		afterEach(mockFs.restore);
+
+		it("sets the isOpen property to true", async () => {
+			const db = new DB("yes");
+			await db.open();
+			expect(db.isOpen).toBeTrue();
+		});
 
 		it("checks if the given file exists and creates it if it doesn't", async () => {
 			const db = new DB("no");
@@ -91,7 +108,7 @@ describe("lib/db", () => {
 	describe("clear()", () => {
 		const testFilename = "clear.jsonl";
 		let db: DB;
-		beforeAll(async () => {
+		beforeEach(async () => {
 			mockFs({
 				[testFilename]:
 					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
@@ -99,7 +116,12 @@ describe("lib/db", () => {
 			db = new DB(testFilename);
 			await db.open();
 		});
-		afterAll(mockFs.restore);
+		afterEach(mockFs.restore);
+
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.clear()).toThrowError("not open");
+		});
 
 		it("removes all entries from the database and truncates the file", async () => {
 			db.clear();
@@ -127,6 +149,11 @@ describe("lib/db", () => {
 			await db.open();
 		});
 		afterEach(mockFs.restore);
+
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.delete("key1")).toThrowError("not open");
+		});
 
 		it("removes the given key from the database and writes a line with an undefined value", async () => {
 			expect(db.delete("key2")).toBeTrue();
@@ -180,6 +207,11 @@ describe("lib/db", () => {
 		});
 		afterEach(mockFs.restore);
 
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.set("foo", 1)).toThrowError("not open");
+		});
+
 		it("adds the given key to the database and writes a line with the serialized value", async () => {
 			db.set("key", true);
 			expect(db.size).toBe(1);
@@ -221,6 +253,11 @@ describe("lib/db", () => {
 		it("may be called twice", async () => {
 			await db.close();
 			await db.close();
+		});
+
+		it("sets the isOpen property to false", async () => {
+			await db.close();
+			expect(db.isOpen).toBeFalse();
 		});
 	});
 
@@ -364,7 +401,7 @@ describe("lib/db", () => {
 			await db.close();
 			await db.open();
 
-			assertEqual(db as any, map);
+			assertEqual(db, map);
 		});
 	});
 

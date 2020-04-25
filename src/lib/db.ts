@@ -37,6 +37,10 @@ export class DB<V extends unknown = unknown> {
 		return this._db.size;
 	}
 
+	private _isOpen: boolean = false;
+	public get isOpen(): boolean {
+		return this._isOpen;
+	}
 	private _fd: number | undefined;
 	private _dumpFd: number | undefined;
 	private _compressBacklog: stream.PassThrough | undefined;
@@ -76,6 +80,7 @@ export class DB<V extends unknown = unknown> {
 		this._openPromise = createDeferredPromise();
 		void this.writeThread();
 		await this._openPromise;
+		this._isOpen = true;
 	}
 
 	/** Parses a line and updates the internal DB correspondingly */
@@ -90,10 +95,16 @@ export class DB<V extends unknown = unknown> {
 	}
 
 	public clear(): void {
+		if (!this._isOpen) {
+			throw new Error("The database is not open!");
+		}
 		this._db.clear();
 		this.write("");
 	}
 	public delete(key: string): boolean {
+		if (!this._isOpen) {
+			throw new Error("The database is not open!");
+		}
 		const ret = this._db.delete(key);
 		if (ret) {
 			// Something was deleted
@@ -102,12 +113,16 @@ export class DB<V extends unknown = unknown> {
 		return ret;
 	}
 	public set(key: string, value: V): this {
+		if (!this._isOpen) {
+			throw new Error("The database is not open!");
+		}
 		this._db.set(key, value);
 		this.write(this.entryToLine(key, value));
 		return this;
 	}
 
 	private write(line: string): void {
+		/* istanbul ignore else */
 		if (this._compressBacklog && !this._compressBacklog.destroyed) {
 			this._compressBacklog.write(line);
 		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
@@ -214,21 +229,20 @@ export class DB<V extends unknown = unknown> {
 		void this.writeThread();
 		await this._openPromise;
 
-		// Write all buffered data
-		this._compressBacklog.pipe(this._writeBacklog!, {
-			// Don't close the target stream!
-			end: false,
-		});
-		this._compressBacklog.on("end", () => {
-			this._compressBacklog?.destroy();
-			this._compressBacklog = undefined;
-		});
+		// In case there is any data in the backlog stream, persist that too
+		let line: string;
+		while (null !== (line = this._compressBacklog.read())) {
+			this._writeBacklog!.write(line);
+		}
+		this._compressBacklog.destroy();
+		this._compressBacklog = undefined;
 	}
 
 	private _closeDBPromise: DeferredPromise<void> | undefined;
 	private _closeDumpPromise: DeferredPromise<void> | undefined;
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
+		this._isOpen = false;
 		if (this._writeBacklog) {
 			this._closeDBPromise = createDeferredPromise();
 			// Disable writing into the backlog stream
