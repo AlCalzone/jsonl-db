@@ -52,6 +52,9 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
+### __WORK IN PROGRESS__
+* Added `isOpen` property
+
 ### 0.1.3 (2020-04-25)
 * Writes that happen while `compress()` replaces files are now persisted
 
@@ -62,5 +65,4 @@ await db.compress();
 * Fixed some race conditions
 
 ### 0.1.0 (2020-04-25)
-
 First official release
