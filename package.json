@@ -1,5 +1,5 @@
 {
-  "name": "jsonl-db",
+  "name": "@alcalzone/jsonl-db",
   "version": "0.0.1",
   "description": "Simple JSONL-based key-value store",
   "main": "./build/index.js",
@@ -9,7 +9,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zwave-js/jsonl-db.git"
+    "url": "git+https://github.com/AlCalzone/jsonl-db.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "jsonl",
@@ -23,9 +26,9 @@
   },
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/zwave-js/jsonl-db/issues"
+    "url": "https://github.com/AlCalzone/jsonl-db/issues"
   },
-  "homepage": "https://github.com/zwave-js/jsonl-db#readme",
+  "homepage": "https://github.com/AlCalzone/jsonl-db#readme",
   "devDependencies": {
     "@alcalzone/release-script": "^1.2.0",
     "@babel/cli": "^7.8.4",
