@@ -52,7 +52,7 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.2.0 (2020-04-25)
 * Added `isOpen` property
 
 ### 0.1.3 (2020-04-25)
