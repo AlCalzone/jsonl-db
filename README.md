@@ -52,7 +52,7 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.1.3 (2020-04-25)
 * Writes that happen while `compress()` replaces files are now persisted
 
 ### 0.1.2 (2020-04-25)
