@@ -184,15 +184,14 @@ export class DB<V extends unknown = unknown> {
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
+		if (!this._writeBacklog) return;
 		await this.dump();
 		// After dumping, restart the write thread so no duplicate entries get written
-		if (this._writeBacklog) {
-			this._closeDBPromise = createDeferredPromise();
-			// Disable writing into the backlog stream
-			this._writeBacklog.end();
-			this._writeBacklog = undefined;
-			await this._closeDBPromise;
-		}
+		this._closeDBPromise = createDeferredPromise();
+		// Disable writing into the backlog stream
+		this._writeBacklog.end();
+		this._writeBacklog = undefined;
+		await this._closeDBPromise;
 
 		// Replace the aof file
 		await fs.move(this.filename, this.filename + ".bak");

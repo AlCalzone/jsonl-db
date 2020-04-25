@@ -318,6 +318,19 @@ describe("lib/db", () => {
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n{"k":"key2","v":1}\n',
 			);
 		});
+
+		it("does not do anything when the DB is being closed", async () => {
+			db.set("key3", 3);
+			db.delete("key2");
+			db.set("key3", 3.5);
+			const closePromise = db.close();
+			await db.compress();
+			await closePromise;
+
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key3","v":3}\n{"k":"key2"}\n{"k":"key3","v":3.5}\n',
+			);
+		});
 	});
 
 	describe("consistency checks", () => {
