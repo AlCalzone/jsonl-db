@@ -46,6 +46,6 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
-### **WORK IN PROGRESS**
+### __WORK IN PROGRESS__
 
 First official release
