@@ -7,7 +7,7 @@ Simple JSONL-based key-value store. Uses an append-only file to store the data. 
 Load the module:
 
 ```ts
-import { DB } from "jsonl-db";
+import { DB } from "@alcalzone/jsonl-db";
 ```
 
 Open or create a database file:
