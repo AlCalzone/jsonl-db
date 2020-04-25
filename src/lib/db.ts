@@ -39,6 +39,7 @@ export class DB<V extends unknown = unknown> {
 
 	private _fd: number | undefined;
 	private _dumpFd: number | undefined;
+	private _compressBacklog: stream.PassThrough | undefined;
 	private _writeBacklog: stream.PassThrough | undefined;
 	private _dumpBacklog: stream.PassThrough | undefined;
 
@@ -107,7 +108,15 @@ export class DB<V extends unknown = unknown> {
 	}
 
 	private write(line: string): void {
-		this._writeBacklog!.write(line);
+		if (this._compressBacklog && !this._compressBacklog.destroyed) {
+			this._compressBacklog.write(line);
+		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
+			this._writeBacklog.write(line);
+		} else {
+			throw new Error(
+				"Cannot write into the database while no streams are open!",
+			);
+		}
 		// If necessary, write to the dump backlog, so the dump doesn't miss any data
 		if (this._dumpBacklog && !this._dumpBacklog.destroyed) {
 			this._dumpBacklog.write(line);
@@ -188,7 +197,9 @@ export class DB<V extends unknown = unknown> {
 		await this.dump();
 		// After dumping, restart the write thread so no duplicate entries get written
 		this._closeDBPromise = createDeferredPromise();
-		// Disable writing into the backlog stream
+		// Disable writing into the backlog stream and buffer all writes
+		// in the compress backlog in the meantime
+		this._compressBacklog = new stream.PassThrough({ objectMode: true });
 		this._writeBacklog.end();
 		this._writeBacklog = undefined;
 		await this._closeDBPromise;
@@ -198,10 +209,20 @@ export class DB<V extends unknown = unknown> {
 		await fs.move(this.dumpFilename, this.filename);
 		await fs.unlink(this.filename + ".bak");
 
-		// Start the write thread
+		// Start the write thread again
 		this._openPromise = createDeferredPromise();
 		void this.writeThread();
 		await this._openPromise;
+
+		// Write all buffered data
+		this._compressBacklog.pipe(this._writeBacklog!, {
+			// Don't close the target stream!
+			end: false,
+		});
+		this._compressBacklog.on("end", () => {
+			this._compressBacklog?.destroy();
+			this._compressBacklog = undefined;
+		});
 	}
 
 	private _closeDBPromise: DeferredPromise<void> | undefined;

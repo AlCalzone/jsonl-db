@@ -3,7 +3,8 @@ import * as fs from "fs-extra";
 import mockFs from "mock-fs";
 import { DB } from "./db";
 
-let mockThrottle = 0;
+let mockAppendFileThrottle = 0;
+let mockMoveFileThrottle = 0;
 
 jest.mock("fs-extra", () => {
 	const originalFS = jest.requireActual("fs-extra");
@@ -12,10 +13,16 @@ jest.mock("fs-extra", () => {
 		__esModule: true, // Use it when dealing with esModules
 		...originalFS,
 		appendFile: jest.fn().mockImplementation(async (fs, str) => {
-			if (mockThrottle > 0) {
-				await wait(mockThrottle);
+			if (mockAppendFileThrottle > 0) {
+				await wait(mockAppendFileThrottle);
 			}
 			return originalFS.appendFile(fs, str);
+		}),
+		move: jest.fn().mockImplementation(async (src, dest) => {
+			if (mockMoveFileThrottle > 0) {
+				await wait(mockMoveFileThrottle);
+			}
+			return originalFS.move(src, dest);
 		}),
 		createReadStream: jest.fn().mockImplementation((path, options) => {
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -33,6 +40,13 @@ jest.mock("fs-extra", () => {
 		}),
 	};
 });
+
+function assertEqual(one: Map<any, any>, two: Map<any, any>) {
+	for (const key of one.keys()) {
+		expect(two.has(key)).toBeTrue();
+		expect(two.get(key)).toBe(one.get(key));
+	}
+}
 
 describe("lib/db", () => {
 	describe("open()", () => {
@@ -227,15 +241,8 @@ describe("lib/db", () => {
 			await db.close();
 			await dumpdb.close();
 			mockFs.restore();
-			mockThrottle = 0;
+			mockAppendFileThrottle = 0;
 		});
-
-		function assertEqual() {
-			for (const key of db.keys()) {
-				expect(dumpdb.has(key)).toBeTrue();
-				expect(dumpdb.get(key)).toBe(db.get(key));
-			}
-		}
 
 		it("writes a compressed version of the database", async () => {
 			for (let i = 1; i < 20; i++) {
@@ -249,12 +256,12 @@ describe("lib/db", () => {
 
 			await dumpdb.close();
 			await dumpdb.open();
-			assertEqual();
+			assertEqual(db, dumpdb);
 		});
 
 		it("when additional data is written during the dump, it is also dumped", async () => {
 			// simulate a slow FS
-			mockThrottle = 50;
+			mockAppendFileThrottle = 50;
 			let dumpPromise: Promise<void>;
 			for (let i = 1; i < 20; i++) {
 				if (i % 4 === 0) {
@@ -269,7 +276,7 @@ describe("lib/db", () => {
 
 			await dumpdb.close();
 			await dumpdb.open();
-			assertEqual();
+			assertEqual(db, dumpdb);
 		});
 	});
 
@@ -286,6 +293,7 @@ describe("lib/db", () => {
 		afterEach(async () => {
 			await db.close();
 			mockFs.restore();
+			mockMoveFileThrottle = 0;
 		});
 
 		it("overwrites the append-only file with a compressed version", async () => {
@@ -330,6 +338,33 @@ describe("lib/db", () => {
 			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key3","v":3}\n{"k":"key2"}\n{"k":"key3","v":3.5}\n',
 			);
+		});
+
+		it("when additional data is written while the files are moved, it is appended to the main file", async () => {
+			// simulate a slow FS
+			mockMoveFileThrottle = 50;
+			let compressPromise: Promise<void>;
+			const map = new Map<any, any>([
+				["key1", 1],
+				["key2", "2"],
+			]);
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+					map.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+					map.set(`${i}`, i);
+				}
+				if (i === 10) compressPromise = db.compress();
+				if (i > 10) await wait(20);
+			}
+			await compressPromise!;
+
+			await db.close();
+			await db.open();
+
+			assertEqual(db as any, map);
 		});
 	});
 
