@@ -48,7 +48,7 @@ export class DB<V extends unknown = unknown> {
 		const readStream = fs.createReadStream(this.filename, {
 			encoding: "utf8",
 			fd: this._fd!,
-			// autoClose: false,
+			autoClose: false,
 		});
 		const rl = readline.createInterface(readStream);
 		rl.on("line", (line) => {
@@ -60,15 +60,21 @@ export class DB<V extends unknown = unknown> {
 		return output;
 	}
 
-	/** Opens the database file or creates it if it doesn't exist */
+	private _openPromise: DeferredPromise<void> | undefined;
+	// /** Opens the database file or creates it if it doesn't exist */
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		for await (const line of this.readLines()) {
 			this.parseLine(line);
 		}
+		// Close the file again to avoid EBADF
+		await fs.close(this._fd);
+		this._fd = undefined;
 		// Start the write thread
+		this._openPromise = createDeferredPromise();
 		void this.writeThread();
+		await this._openPromise;
 	}
 
 	/** Parses a line and updates the internal DB correspondingly */
@@ -149,42 +155,54 @@ export class DB<V extends unknown = unknown> {
 		this._closeDumpPromise.resolve();
 	}
 
+	// TODO: use cork() and uncork() to throttle filesystem accesses
+
 	/** Asynchronously performs all write actions */
 	private async writeThread(): Promise<void> {
-		// TODO: use cork() and uncork()
+		// This must be called before any awaits
 		this._writeBacklog = new stream.PassThrough({ objectMode: true });
+		// Open the file for appending and reading
+		this._fd = await fs.open(this.filename, "a+");
+		this._openPromise?.resolve();
 		for await (const action of this._writeBacklog as AsyncIterable<
 			string
 		>) {
 			if (action === "") {
 				// Since we opened the file in append mode, we cannot truncate
 				// therefore close and open in write mode again
-				await fs.close(this._fd!);
+				await fs.close(this._fd);
 				this._fd = await fs.open(this.filename, "w+");
 			} else {
-				await fs.appendFile(this._fd!, action + "\n");
+				await fs.appendFile(this._fd, action + "\n");
 			}
 		}
 		// The write backlog was closed, this means that the DB is being closed
 		// close the file and resolve the close promise
-		await fs.close(this._fd!);
+		await fs.close(this._fd);
 		this._closeDBPromise?.resolve();
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
 		await this.dump();
-		// After dumping, cork the write backlog, so nothing gets written
-		this._writeBacklog!.cork();
-		await fs.close(this._fd!);
+		// After dumping, restart the write thread so no duplicate entries get written
+		if (this._writeBacklog) {
+			this._closeDBPromise = createDeferredPromise();
+			// Disable writing into the backlog stream
+			this._writeBacklog.end();
+			this._writeBacklog = undefined;
+			await this._closeDBPromise;
+		}
+
 		// Replace the aof file
 		await fs.move(this.filename, this.filename + ".bak");
 		await fs.move(this.dumpFilename, this.filename);
 		await fs.unlink(this.filename + ".bak");
-		// Re-open the file for appending
-		this._fd = await fs.open(this.filename, "a+");
-		// and allow writing again
-		this._writeBacklog!.uncork();
+
+		// Start the write thread
+		this._openPromise = createDeferredPromise();
+		void this.writeThread();
+		await this._openPromise;
 	}
 
 	private _closeDBPromise: DeferredPromise<void> | undefined;
