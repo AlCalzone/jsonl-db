@@ -171,6 +171,22 @@ export class DB<V extends unknown = unknown> {
 		this._closeDBPromise?.resolve();
 	}
 
+	/** Compresses the db by dumping it and overwriting the aof file. */
+	public async compress(): Promise<void> {
+		await this.dump();
+		// After dumping, cork the write backlog, so nothing gets written
+		this._writeBacklog!.cork();
+		await fs.close(this._fd!);
+		// Replace the aof file
+		await fs.move(this.filename, this.filename + ".bak");
+		await fs.move(this.dumpFilename, this.filename);
+		await fs.unlink(this.filename + ".bak");
+		// Re-open the file for appending
+		this._fd = await fs.open(this.filename, "a+");
+		// and allow writing again
+		this._writeBacklog!.uncork();
+	}
+
 	private _closeDBPromise: DeferredPromise<void> | undefined;
 	private _closeDumpPromise: DeferredPromise<void> | undefined;
 	/** Closes the DB and waits for all data to be written */

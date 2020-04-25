@@ -1,6 +1,7 @@
 export declare class DB<V extends unknown = unknown> {
-    readonly filename: string;
     constructor(filename: string);
+    readonly filename: string;
+    readonly dumpFilename: string;
     private _db;
     forEach: Map<string, V>["forEach"];
     get: Map<string, V>["get"];
@@ -11,7 +12,9 @@ export declare class DB<V extends unknown = unknown> {
     values: Map<string, V>["values"];
     get size(): number;
     private _fd;
-    private _writeLog;
+    private _dumpFd;
+    private _writeBacklog;
+    private _dumpBacklog;
     /** Opens a file and allows iterating over all lines */
     private readLines;
     /** Opens the database file or creates it if it doesn't exist */
@@ -21,9 +24,16 @@ export declare class DB<V extends unknown = unknown> {
     clear(): void;
     delete(key: string): boolean;
     set(key: string, value: V): this;
+    private write;
+    private entryToLine;
+    /** Saves a compressed copy of the DB into `<filename>.dump` */
+    dump(): Promise<void>;
     /** Asynchronously performs all write actions */
     private writeThread;
-    private _closePromise;
+    /** Compresses the db by dumping it and overwriting the aof file. */
+    compress(): Promise<void>;
+    private _closeDBPromise;
+    private _closeDumpPromise;
     /** Closes the DB and waits for all data to be written */
     close(): Promise<void>;
 }

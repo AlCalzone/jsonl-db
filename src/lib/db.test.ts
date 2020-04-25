@@ -1,12 +1,22 @@
+import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
 import mockFs from "mock-fs";
 import { DB } from "./db";
 
+let mockThrottle = 0;
+
 jest.mock("fs-extra", () => {
 	const originalFS = jest.requireActual("fs-extra");
+	const wait = require("alcalzone-shared/async").wait;
 	return {
 		__esModule: true, // Use it when dealing with esModules
 		...originalFS,
+		appendFile: jest.fn().mockImplementation(async (fs, str) => {
+			if (mockThrottle > 0) {
+				await wait(mockThrottle);
+			}
+			return originalFS.appendFile(fs, str);
+		}),
 		createReadStream: jest.fn().mockImplementation((path, options) => {
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			const { PassThrough } = require("stream");
@@ -211,13 +221,23 @@ describe("lib/db", () => {
 			});
 			db = new DB(testFilename);
 			dumpdb = new DB(testFilename + ".dump");
+			await db.open();
 		});
 		afterEach(async () => {
+			await db.close();
+			await dumpdb.close();
 			mockFs.restore();
+			mockThrottle = 0;
 		});
 
+		function assertEqual() {
+			for (const key of db.keys()) {
+				expect(dumpdb.has(key)).toBeTrue();
+				expect(dumpdb.get(key)).toBe(db.get(key));
+			}
+		}
+
 		it("writes a compressed version of the database", async () => {
-			await db.open();
 			for (let i = 1; i < 20; i++) {
 				if (i % 4 === 0) {
 					db.delete(`${i - 1}`);
@@ -227,15 +247,76 @@ describe("lib/db", () => {
 			}
 			await db.dump();
 
-			await db.close();
 			await dumpdb.close();
-
 			await dumpdb.open();
+			assertEqual();
+		});
 
-			for (const key of db.keys()) {
-				expect(dumpdb.has(key)).toBeTrue();
-				expect(dumpdb.get(key)).toBe(db.get(key));
+		it("when additional data is written during the dump, it is also dumped", async () => {
+			// simulate a slow FS
+			mockThrottle = 50;
+			let dumpPromise: Promise<void>;
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+				}
+				if (i === 10) dumpPromise = db.dump();
+				if (i > 10) await wait(20);
 			}
+			await dumpPromise!;
+
+			await dumpdb.close();
+			await dumpdb.open();
+			assertEqual();
+		});
+	});
+
+	describe("compress()", () => {
+		const testFilename = "compress.jsonl";
+		let db: DB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+			});
+			db = new DB(testFilename);
+			await db.open();
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+		});
+
+		it("overwrites the append-only file with a compressed version", async () => {
+			db.set("key3", 3);
+			db.delete("key2");
+			db.set("key3", 3.5);
+
+			await db.compress();
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
+			);
+			await expect(
+				fs.pathExists(testFilename + ".dump"),
+			).resolves.toBeFalse();
+			await expect(
+				fs.pathExists(testFilename + ".bak"),
+			).resolves.toBeFalse();
+		});
+
+		it("after compresing, writing works as usual", async () => {
+			db.set("key3", 3);
+			db.delete("key2");
+			db.set("key3", 3.5);
+			await db.compress();
+
+			db.set("key2", 1);
+			// Force flush
+			await db.close();
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n{"k":"key2","v":1}\n',
+			);
 		});
 	});
 
