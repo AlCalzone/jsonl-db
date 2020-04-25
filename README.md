@@ -52,7 +52,7 @@ await db.compress();
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.1.1 (2020-04-25)
 * Fixed some race conditions
 
 ### 0.1.0 (2020-04-25)
