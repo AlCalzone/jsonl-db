@@ -68,7 +68,7 @@ export class DB<V extends unknown = unknown> {
 			this.parseLine(line);
 		}
 		// Start the write thread
-		this.writeThread();
+		void this.writeThread();
 	}
 
 	/** Parses a line and updates the internal DB correspondingly */
@@ -143,7 +143,7 @@ export class DB<V extends unknown = unknown> {
 
 		// The dump backlog was closed, this means that the dump is finished.
 		// Close the file and resolve the close promise
-		await fs.close(this._dumpFd!);
+		await fs.close(this._dumpFd);
 
 		this._dumpFd = undefined;
 		this._closeDumpPromise.resolve();
