@@ -14,6 +14,9 @@
   "publishConfig": {
     "access": "public"
   },
+  "engines": {
+    "node": ">= 10"
+  },
   "keywords": [
     "jsonl",
     "ndjson",
