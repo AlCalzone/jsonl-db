@@ -69,7 +69,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.3.0 (2020-04-26)
 * Added `importJson` and `exportJson` methods
 
 ### 0.2.0 (2020-04-25)
