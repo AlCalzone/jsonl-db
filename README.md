@@ -22,6 +22,7 @@ Open or create a database file:
 const db = new DB("/path/to/file");
 await db.open();
 ```
+Now, `db.isOpen` is `true`.
 
 Use the database like you would use a [`Map`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map).
 
@@ -30,6 +31,7 @@ The data is persisted asynchronously, so make sure to `close()` the DB when you 
 ```ts
 await db.close();
 ```
+Now, `db.isOpen` is `false`. While the db is not open, any calls that access the data will throw an error.
 
 To create a compressed copy of the database in `/path/to/file.dump`, use the `dump()` method. If any data is written to the db during the dump, it is appended to the dump but most likely compressed.
 
@@ -45,12 +47,30 @@ await db.compress();
 
 **Note:** During this call, `/path/to/file.dump` is overwritten and then renamed, `/path/to/file.bak` is overwritten and then deleted. So make sure you don't have any important data in these files.
 
+Importing JSON files can be done this way:
+```ts
+// pass a filename, the import will be asynchronous
+await db.importJson(filename);
+// pass the object directly, the import will be synchronous
+db.importJson({key: "value"});
+```
+In both cases, existing entries in the DB will not be deleted but will be overwritten if they exist.
+
+Exporting JSON files is also possible:
+```ts
+await db.exportJson(filename[, options]);
+```
+The file will be overwritten if it exists. The 2nd options argument can be used to control the file formatting. Since `fs-extra`'s `writeJson` is used under the hood, take a look at that [method documentation](https://github.com/jprichardson/node-fs-extra/blob/master/docs/writeJson.md) for details on the options object.
+
 ## Changelog
 
 <!--
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+
+### __WORK IN PROGRESS__
+* Added `importJson` and `exportJson` methods
 
 ### 0.2.0 (2020-04-25)
 * Added `isOpen` property

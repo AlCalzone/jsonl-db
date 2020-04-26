@@ -239,6 +239,97 @@ describe("lib/db", () => {
 		});
 	});
 
+	describe("importJson()", () => {
+		const testFilename = "import.jsonl";
+		let db: DB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				jsonFile: '{"key3": 1, "key4": true}',
+			});
+			db = new DB(testFilename);
+			await db.open();
+		});
+		afterEach(mockFs.restore);
+
+		it("both versions throw when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.importJson({})).toThrowError("not open");
+			await expect(db.importJson("")).toReject();
+		});
+
+		it("the object version adds all keys and values to the database", async () => {
+			db.importJson({
+				foo: "bar",
+				baz: "inga",
+				"1": 1,
+			});
+			// Force the stream to be flushed
+			await db.close();
+
+			// The order changes because Object.entries reads the entries in a different order
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				`{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"1","v":1}
+{"k":"foo","v":"bar"}
+{"k":"baz","v":"inga"}
+`,
+			);
+		});
+
+		it("the file version asynchronously adds all keys and values to the database", async () => {
+			await db.importJson("jsonFile");
+			// Force the stream to be flushed
+			await db.close();
+
+			// The order changes because Object.entries reads the entries in a different order
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				`{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":1}
+{"k":"key4","v":true}
+`,
+			);
+		});
+	});
+
+	describe("exportJson()", () => {
+		const testFilename = "export.jsonl";
+		let db: DB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				jsonFile: '{"key3": 1, "key4": true}',
+			});
+			db = new DB(testFilename);
+			await db.open();
+		});
+		afterEach(mockFs.restore);
+
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			await expect(db.exportJson("jsonFile")).toReject();
+		});
+
+		it("overwrites the given file with the DB contents as valid JSON", async () => {
+			await db.exportJson("jsonfile");
+			await expect(fs.readFile("jsonfile", "utf8")).resolves.toBe(
+				`{"key1":1,"key2":"2"}\n`,
+			);
+		});
+
+		it("honors the JSON formatting options", async () => {
+			await db.exportJson("jsonfile", { spaces: "\t" });
+			await expect(fs.readFile("jsonfile", "utf8")).resolves.toBe(
+				`{
+	"key1": 1,
+	"key2": "2"
+}\n`,
+			);
+		});
+	});
+
 	describe("close()", () => {
 		const testFilename = "close.jsonl";
 		// The basic functionality is tested in the other suites

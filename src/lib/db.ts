@@ -2,6 +2,7 @@ import {
 	createDeferredPromise,
 	DeferredPromise,
 } from "alcalzone-shared/deferred-promise";
+import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as readline from "readline";
 import * as stream from "stream";
@@ -121,6 +122,45 @@ export class DB<V extends unknown = unknown> {
 		return this;
 	}
 
+	private async importJsonFile(filename: string): Promise<void> {
+		const json = await fs.readJSON(filename);
+		return this.importJson(json);
+	}
+
+	public importJson(filename: string): Promise<void>;
+	public importJson(json: Record<string, any>): void;
+	public importJson(
+		jsonOrFile: Record<string, any> | string,
+	): void | Promise<void> {
+		if (typeof jsonOrFile === "string") {
+			if (!this._isOpen) {
+				return Promise.reject(new Error("The database is not open!"));
+			}
+			return this.importJsonFile(jsonOrFile);
+		} else {
+			if (!this._isOpen) {
+				throw new Error("The database is not open!");
+			}
+		}
+
+		for (const [key, value] of Object.entries(jsonOrFile)) {
+			this._db.set(key, value);
+			this.write(this.entryToLine(key, value));
+		}
+	}
+
+	public async exportJson(
+		filename: string,
+		options?: fs.WriteOptions,
+	): Promise<void> {
+		if (!this._isOpen) {
+			return Promise.reject(new Error("The database is not open!"));
+		}
+		return fs.writeJSON(filename, composeObject([...this._db]), options);
+	}
+
+	// TODO: use cork() and uncork() to throttle filesystem accesses
+
 	private write(line: string): void {
 		/* istanbul ignore else */
 		if (this._compressBacklog && !this._compressBacklog.destroyed) {
@@ -178,8 +218,6 @@ export class DB<V extends unknown = unknown> {
 		this._dumpFd = undefined;
 		this._closeDumpPromise.resolve();
 	}
-
-	// TODO: use cork() and uncork() to throttle filesystem accesses
 
 	/** Asynchronously performs all write actions */
 	private async writeThread(): Promise<void> {
