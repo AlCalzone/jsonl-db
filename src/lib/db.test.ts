@@ -1,7 +1,7 @@
 import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
 import mockFs from "mock-fs";
-import { DB } from "./db";
+import { JsonlDB } from "./db";
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
@@ -70,25 +70,25 @@ describe("lib/db", () => {
 		afterEach(mockFs.restore);
 
 		it("sets the isOpen property to true", async () => {
-			const db = new DB("yes");
+			const db = new JsonlDB("yes");
 			await db.open();
 			expect(db.isOpen).toBeTrue();
 		});
 
 		it("checks if the given file exists and creates it if it doesn't", async () => {
-			const db = new DB("no");
+			const db = new JsonlDB("no");
 			await db.open();
 			await db.close();
 		});
 
 		it("reads the file if it exists", async () => {
-			const db = new DB("yes");
+			const db = new JsonlDB("yes");
 			await db.open();
 			await db.close();
 		});
 
 		it("should contain the correct data", async () => {
-			const db = new DB("yes");
+			const db = new JsonlDB("yes");
 			await db.open();
 
 			expect(db.size).toBe(1);
@@ -107,13 +107,13 @@ describe("lib/db", () => {
 
 	describe("clear()", () => {
 		const testFilename = "clear.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]:
 					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
 			});
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -140,12 +140,12 @@ describe("lib/db", () => {
 
 	describe("delete()", () => {
 		const testFilename = "delete.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -199,10 +199,10 @@ describe("lib/db", () => {
 
 	describe("set()", () => {
 		const testFilename = "set.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -241,13 +241,13 @@ describe("lib/db", () => {
 
 	describe("importJson()", () => {
 		const testFilename = "import.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 				jsonFile: '{"key3": 1, "key4": true}',
 			});
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -296,13 +296,13 @@ describe("lib/db", () => {
 
 	describe("exportJson()", () => {
 		const testFilename = "export.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 				jsonFile: '{"key3": 1, "key4": true}',
 			});
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -333,10 +333,10 @@ describe("lib/db", () => {
 	describe("close()", () => {
 		const testFilename = "close.jsonl";
 		// The basic functionality is tested in the other suites
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);
@@ -354,15 +354,15 @@ describe("lib/db", () => {
 
 	describe("dump()", () => {
 		const testFilename = "dump.jsonl";
-		let db: DB;
-		let dumpdb: DB;
+		let db: JsonlDB;
+		let dumpdb: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: "",
 				[testFilename + ".dump"]: "",
 			});
-			db = new DB(testFilename);
-			dumpdb = new DB(testFilename + ".dump");
+			db = new JsonlDB(testFilename);
+			dumpdb = new JsonlDB(testFilename + ".dump");
 			await db.open();
 		});
 		afterEach(async () => {
@@ -410,12 +410,12 @@ describe("lib/db", () => {
 
 	describe("compress()", () => {
 		const testFilename = "compress.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(async () => {
@@ -498,10 +498,10 @@ describe("lib/db", () => {
 
 	describe("consistency checks", () => {
 		const testFilename = "checks.jsonl";
-		let db: DB;
+		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs();
-			db = new DB(testFilename);
+			db = new JsonlDB(testFilename);
 			await db.open();
 		});
 		afterEach(mockFs.restore);

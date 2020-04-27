@@ -1,1 +1,1 @@
-export { DB } from "./lib/db";
+export { JsonlDB as DB } from "./lib/db";

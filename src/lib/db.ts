@@ -7,7 +7,7 @@ import * as fs from "fs-extra";
 import * as readline from "readline";
 import * as stream from "stream";
 
-export class DB<V extends unknown = unknown> {
+export class JsonlDB<V extends unknown = unknown> {
 	public constructor(filename: string) {
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
