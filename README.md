@@ -40,6 +40,16 @@ await db.open();
 ```
 **Warning:** This may result in inconsistent data since invalid lines are silently ignored.
 
+You can optionally transform the parsed values by passing a reviver function. This allows storing non-primitive objects in the database if those can be transformed to JSON (e.g. by overwriting the `toJSON` method).
+```ts
+function reviver(key: string, value: any) {
+  // MUST return a value. If you don't want to transform `value`, return it.
+}
+
+const db = new DB("/path/to/file", { reviver });
+await db.open();
+```
+
 Data written to the DB is persisted asynchronously. Be sure to call `close()` when you no longer need the database in order to flush all pending writes and close all files:
 
 ```ts
@@ -82,6 +92,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+
+### __WORK IN PROGRESS__
+Added an optional reviver function to transform non-primitive objects while loading the DB
 
 ### 0.4.0 (2020-04-27)
 * Renamed the `DB` class to `JsonlDB`

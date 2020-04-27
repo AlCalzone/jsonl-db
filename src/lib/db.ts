@@ -7,16 +7,21 @@ import * as fs from "fs-extra";
 import * as readline from "readline";
 import * as stream from "stream";
 
-export interface JsonlDBOptions {
+export interface JsonlDBOptions<V> {
 	/**
 	 * Whether errors reading the db file (e.g. invalid JSON) should silently be ignored.
 	 * **Warning:** This may result in inconsistent data!
 	 */
 	ignoreReadErrors?: boolean;
+	/**
+	 * An optional reviver functionn (similar to JSON.parse) to transform parsed values before they are accessible in the database.
+	 * If this function is defined, it must always return a value.
+	 */
+	reviver?: (key: string, value: any) => any;
 }
 
 export class JsonlDB<V extends unknown = unknown> {
-	public constructor(filename: string, options: JsonlDBOptions = {}) {
+	public constructor(filename: string, options: JsonlDBOptions<V> = {}) {
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
 		this.options = options;
@@ -33,7 +38,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	public readonly filename: string;
 	public readonly dumpFilename: string;
 
-	private options: JsonlDBOptions;
+	private options: JsonlDBOptions<V>;
 
 	private _db = new Map<string, V>();
 	// Declare all map properties we can use directly
@@ -113,7 +118,12 @@ export class JsonlDB<V extends unknown = unknown> {
 		const record: { k: string; v?: V } = JSON.parse(line);
 		const { k, v } = record;
 		if (v !== undefined) {
-			this._db.set(k, v);
+			this._db.set(
+				k,
+				typeof this.options.reviver === "function"
+					? this.options.reviver(k, v)
+					: v,
+			);
 		} else {
 			this._db.delete(k);
 		}

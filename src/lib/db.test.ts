@@ -69,6 +69,11 @@ describe("lib/db", () => {
 				emptyLines:
 					'\n{"k": "key1", "v": 1}\n\n\n{"k": "key2", "v": "2"}\n\n',
 				broken: `{"k": "key1", "v": 1}\n{"k":,"v":1}\n`,
+				reviver: `
+{"k": "key1", "v": 1}
+{"k": "key2", "v": "2"}
+{"k": "key1"}
+{"k": "key1", "v": true}`,
 			});
 		});
 		afterEach(mockFs.restore);
@@ -134,6 +139,20 @@ describe("lib/db", () => {
 		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true", async () => {
 			const db = new JsonlDB("broken", { ignoreReadErrors: true });
 			await expect(db.open()).toResolve();
+		});
+
+		it("transforms each value using the valueReviver function if any is passed", async () => {
+			const reviver = jest.fn().mockReturnValue("eeee");
+			const db = new JsonlDB("reviver", { reviver });
+			await db.open();
+			expect(reviver).toBeCalledTimes(3);
+			expect(reviver).toBeCalledWith("key1", 1);
+			expect(reviver).toBeCalledWith("key2", "2");
+			expect(reviver).toBeCalledWith("key1", true);
+
+			db.forEach((v) => {
+				expect(v).toBe("eeee");
+			});
 		});
 	});
 
