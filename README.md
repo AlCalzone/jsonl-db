@@ -83,7 +83,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 0.4.0 (2020-04-27)
 * Renamed the `DB` class to `JsonlDB`
 * `open()` now skips empty lines
 * `open()` throws an error with the line number when it encounters an invalid line. These errors can be ignored using the new constructor options argument.
