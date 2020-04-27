@@ -64,48 +64,49 @@ export class JsonlDB<V extends unknown = unknown> {
 	private _writeBacklog: stream.PassThrough | undefined;
 	private _dumpBacklog: stream.PassThrough | undefined;
 
-	/** Opens a file and allows iterating over all lines */
-	private readLines(): stream.Readable {
-		const output = new stream.PassThrough({ objectMode: true });
-		const readStream = fs.createReadStream(this.filename, {
-			encoding: "utf8",
-			fd: this._fd!,
-			autoClose: false,
-		});
-		const rl = readline.createInterface(readStream);
-		rl.on("line", (line) => {
-			output.write(line);
-		});
-		rl.on("close", () => {
-			output.end();
-		});
-		return output;
-	}
-
 	private _openPromise: DeferredPromise<void> | undefined;
 	// /** Opens the database file or creates it if it doesn't exist */
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
+		const readStream = fs.createReadStream(this.filename, {
+			encoding: "utf8",
+			fd: this._fd,
+			autoClose: false,
+		});
+		const rl = readline.createInterface(readStream);
 		let lineNo = 0;
-		for await (const line of this.readLines()) {
-			// Count source lines for the error message
-			lineNo++;
-			// Skip empty lines
-			if (!line) continue;
 
-			try {
-				this.parseLine(line);
-			} catch (e) {
-				if (this.options.ignoreReadErrors === true) continue;
-				throw new Error(
-					`Cannot open file: Invalid data in line ${lineNo}`,
-				);
-			}
+		try {
+			await new Promise<void>((resolve, reject) => {
+				rl.on("line", (line) => {
+					// Count source lines for the error message
+					lineNo++;
+					// Skip empty lines
+					if (!line) return;
+					try {
+						this.parseLine(line);
+					} catch (e) {
+						if (this.options.ignoreReadErrors === true) {
+							return;
+						} else {
+							reject(
+								new Error(
+									`Cannot open file: Invalid data in line ${lineNo}`,
+								),
+							);
+						}
+					}
+				});
+				rl.on("close", resolve);
+			});
+		} finally {
+			// Close the file again to avoid EBADF
+			rl.close();
+			await fs.close(this._fd);
+			this._fd = undefined;
 		}
-		// Close the file again to avoid EBADF
-		await fs.close(this._fd);
-		this._fd = undefined;
+
 		// Start the write thread
 		this._openPromise = createDeferredPromise();
 		void this.writeThread();
