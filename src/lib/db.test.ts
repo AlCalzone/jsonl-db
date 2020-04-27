@@ -64,7 +64,11 @@ describe("lib/db", () => {
 		beforeEach(() => {
 			mockFs({
 				yes:
-					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
+					// Final newline omitted on purpose
+					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}',
+				emptyLines:
+					'\n{"k": "key1", "v": 1}\n\n\n{"k": "key2", "v": "2"}\n\n',
+				broken: `{"k": "key1", "v": 1}\n{"k":,"v":1}\n`,
 			});
 		});
 		afterEach(mockFs.restore);
@@ -102,6 +106,34 @@ describe("lib/db", () => {
 			expect(spy.mock.calls[0].slice(0, 2)).toEqual(["2", "key2"]);
 
 			await db.close();
+		});
+
+		it("skips empty input lines", async () => {
+			const db = new JsonlDB("emptyLines");
+			await db.open();
+
+			expect(db.has("key1")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.has("key2")).toBeTrue();
+			expect(db.get("key2")).toBe("2");
+
+			await db.close();
+		});
+
+		it("throws when the file contains invalid JSON", async () => {
+			const db = new JsonlDB("broken");
+			try {
+				await db.open();
+				throw new Error("it did not throw");
+			} catch (e) {
+				expect(e.message).toMatch(/invalid data/i);
+				expect(e.message).toMatch("line 2");
+			}
+		});
+
+		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true", async () => {
+			const db = new JsonlDB("broken", { ignoreReadErrors: true });
+			await expect(db.open()).toResolve();
 		});
 	});
 

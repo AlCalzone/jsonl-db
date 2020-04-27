@@ -7,10 +7,19 @@ import * as fs from "fs-extra";
 import * as readline from "readline";
 import * as stream from "stream";
 
+export interface JsonlDBOptions {
+	/**
+	 * Whether errors reading the db file (e.g. invalid JSON) should silently be ignored.
+	 * **Warning:** This may result in inconsistent data!
+	 */
+	ignoreReadErrors?: boolean;
+}
+
 export class JsonlDB<V extends unknown = unknown> {
-	public constructor(filename: string) {
+	public constructor(filename: string, options: JsonlDBOptions = {}) {
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
+		this.options = options;
 		// Bind all map properties we can use directly
 		this.forEach = this._db.forEach.bind(this._db);
 		this.get = this._db.get.bind(this._db);
@@ -23,6 +32,8 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	public readonly filename: string;
 	public readonly dumpFilename: string;
+
+	private options: JsonlDBOptions;
 
 	private _db = new Map<string, V>();
 	// Declare all map properties we can use directly
@@ -71,8 +82,21 @@ export class JsonlDB<V extends unknown = unknown> {
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
+		let lineNo = 0;
 		for await (const line of this.readLines()) {
-			this.parseLine(line);
+			// Count source lines for the error message
+			lineNo++;
+			// Skip empty lines
+			if (!line) continue;
+
+			try {
+				this.parseLine(line);
+			} catch (e) {
+				if (this.options.ignoreReadErrors === true) continue;
+				throw new Error(
+					`Cannot open file: Invalid data in line ${lineNo}`,
+				);
+			}
 		}
 		// Close the file again to avoid EBADF
 		await fs.close(this._fd);

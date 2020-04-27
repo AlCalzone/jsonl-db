@@ -16,17 +16,31 @@ Load the module:
 import { DB } from "@alcalzone/jsonl-db";
 ```
 
-Open or create a database file:
+Open or create a database file and use it like a  [`Map`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map)
 
 ```ts
+// Open
 const db = new DB("/path/to/file");
 await db.open();
+// db.isOpen is now true
+
+// and use it
+db.set("key", value);
+db.delete("key");
+db.clear();
+if (db.has("key")) {
+  result = db.get("key");
+}
+// ...forEach, keys(), entries(), values(), ...
 ```
-Now, `db.isOpen` is `true`.
+If corrupt data is encountered while opening the DB, the call to `open()` will be rejected. If this is to be expected, use the options parameter on the constructor to turn on forgiving behavior:
+```ts
+const db = new DB("/path/to/file", { ignoreReadErrors: true });
+await db.open();
+```
+**Warning:** This may result in inconsistent data since invalid lines are silently ignored.
 
-Use the database like you would use a [`Map`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Map).
-
-The data is persisted asynchronously, so make sure to `close()` the DB when you no longer need it:
+Data written to the DB is persisted asynchronously. Be sure to call `close()` when you no longer need the database in order to flush all pending writes and close all files:
 
 ```ts
 await db.close();
@@ -71,6 +85,8 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 
 ### __WORK IN PROGRESS__
 * Renamed the `DB` class to `JsonlDB`
+* `open()` now skips empty lines
+* `open()` throws an error with the line number when it encounters an invalid line. These errors can be ignored using the new constructor options argument.
 
 ### 0.3.0 (2020-04-26)
 * Added `importJson` and `exportJson` methods
