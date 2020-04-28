@@ -93,6 +93,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 0.5.1 (2020-04-28)
+Fix: The main export no longer exports `JsonlDB` as `DB`.
+
 ### 0.5.0 (2020-04-27)
 Added an optional reviver function to transform non-primitive objects while loading the DB
 
