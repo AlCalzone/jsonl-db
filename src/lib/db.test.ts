@@ -60,6 +60,32 @@ function assertEqual<
 }
 
 describe("lib/db", () => {
+	describe("constructor", () => {
+		describe("validates autoCompress options", () => {
+			it("sizeFactor <= 1", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								sizeFactor: 0.9,
+							},
+						}),
+				).toThrowError("sizeFactor");
+			});
+
+			it("minimumSize <= 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								sizeFactorMinimumSize: -1,
+							},
+						}),
+				).toThrowError("sizeFactorMinimumSize");
+			});
+		});
+	});
+
 	describe("open()", () => {
 		beforeEach(() => {
 			mockFs({
@@ -545,6 +571,29 @@ describe("lib/db", () => {
 
 			assertEqual(db, map);
 		});
+
+		it("blocks the close() call", async () => {
+			// simulate a slow FS
+			mockMoveFileThrottle = 50;
+			const map = new Map<any, any>([
+				["key1", 1],
+				["key2", "2"],
+			]);
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+					map.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+					map.set(`${i}`, i);
+				}
+			}
+			db.compress();
+			await db.close();
+			await db.open();
+
+			assertEqual(db, map);
+		});
 	});
 
 	describe("uncompressedSize", () => {
@@ -620,6 +669,80 @@ describe("lib/db", () => {
 			await compressPromise;
 
 			expect(db.uncompressedSize).toBe(2);
+		});
+	});
+
+	describe("auto-compression", () => {
+		const testFilename = "autoCompress.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: `{"k": "key1", "v": 1}`,
+			});
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+		});
+
+		it("triggers when uncompressedSize >= size * sizeFactor", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 9; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+				if (i <= 3) {
+					expect(compressSpy).not.toBeCalled();
+				} else if (i <= 6) {
+					expect(compressSpy).toBeCalledTimes(1);
+				} else {
+					expect(compressSpy).toBeCalledTimes(2);
+				}
+			}
+
+			await db.close();
+		});
+
+		it("..., but only above the minimum size", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+					sizeFactorMinimumSize: 20,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 20; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+			}
+			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+		});
+
+		it("doesn't trigger when different keys are added", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 20; i++) {
+				db.set("key" + i, i);
+			}
+			await db.close();
+			expect(compressSpy).not.toBeCalled();
 		});
 	});
 
