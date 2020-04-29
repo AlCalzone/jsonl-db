@@ -29,7 +29,7 @@ db.set("key", value);
 db.delete("key");
 db.clear();
 if (db.has("key")) {
-  result = db.get("key");
+	result = db.get("key");
 }
 // ...forEach, keys(), entries(), values(), ...
 ```
@@ -43,7 +43,7 @@ await db.open();
 You can optionally transform the parsed values by passing a reviver function. This allows storing non-primitive objects in the database if those can be transformed to JSON (e.g. by overwriting the `toJSON` method).
 ```ts
 function reviver(key: string, value: any) {
-  // MUST return a value. If you don't want to transform `value`, return it.
+	// MUST return a value. If you don't want to transform `value`, return it.
 }
 
 const db = new DB("/path/to/file", { reviver });
@@ -63,13 +63,27 @@ To create a compressed copy of the database in `/path/to/file.dump`, use the `du
 await db.dump();
 ```
 
-After a while, the main db file may contain unnecessary entries. To remove them, use the `compress()` method.
+After a while, the main db file may contain unnecessary entries. The raw number of entries can be read using the `uncompressedSize` property. To remove unnecessary entries, use the `compress()` method.
 
 ```ts
 await db.compress();
 ```
 
 **Note:** During this call, `/path/to/file.dump` is overwritten and then renamed, `/path/to/file.bak` is overwritten and then deleted. So make sure you don't have any important data in these files.
+
+The database can automatically compress the database file under some conditions. To do so, use the `autoCompress` parameter of the constructor options:
+```ts
+const db = new DB("/path/to/file", { autoCompress: { /* auto compress options */ }});
+```
+The following options exist (all optional) and can be combined:
+| Option | Default | Description |
+|-----------------|---------|-------------|
+| sizeFactor | +Infinity | Compress when `uncompressedSize >= size * sizeFactor` |
+| sizeFactorMinimumSize | 0 | Configure the minimum size necessary for auto-compression based on size |
+| intervalMs | +Infinity | Compress after a certain time has passed |
+| intervalMinChanges | 1 | Configure the minimum count of changes for auto-compression based on time |
+| onClose | false | Compress when closing the DB |
+| onOpen | false | Compress after opening the DB |
 
 Importing JSON files can be done this way:
 ```ts
