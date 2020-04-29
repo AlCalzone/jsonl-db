@@ -107,6 +107,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 1.0.0 (2020-04-29)
+Added auto-compress functionality
+
 ### 0.5.1 (2020-04-28)
 Fix: The main export no longer exports `JsonlDB` as `DB`.
 
