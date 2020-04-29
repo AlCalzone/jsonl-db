@@ -40,6 +40,10 @@ export interface JsonlDBOptions<V> {
 		 * Configure the minimum count of changes for auto-compression based on time. Default: 1
 		 */
 		intervalMinChanges: number;
+		/** Compress when closing the DB. Default: false */
+		onClose: boolean;
+		/** Compress after opening the DB. Default: false */
+		onOpen: boolean;
 	}>;
 }
 
@@ -188,6 +192,10 @@ export class JsonlDB<V extends unknown = unknown> {
 		void this.writeThread();
 		await this._openPromise;
 		this._isOpen = true;
+
+		if (this.options.autoCompress?.onOpen) {
+			await this.compress();
+		}
 	}
 
 	/** Parses a line and updates the internal DB correspondingly */
@@ -442,8 +450,14 @@ export class JsonlDB<V extends unknown = unknown> {
 	public async close(): Promise<void> {
 		this._isOpen = false;
 		if (this.compressInterval) clearInterval(this.compressInterval);
-		// Wait until any pending compress processes are complete
-		if (this.compressPromise) await this.compressPromise;
+
+		if (this.compressPromise) {
+			// Wait until any pending compress processes are complete
+			await this.compressPromise;
+		} else if (this.options.autoCompress?.onClose) {
+			// Compress if required
+			await this.compress();
+		}
 
 		if (this._writeBacklog) {
 			this._closeDBPromise = createDeferredPromise();

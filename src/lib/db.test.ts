@@ -554,7 +554,7 @@ describe("lib/db", () => {
 			);
 		});
 
-		it("does not do anything when the DB is being closed", async () => {
+		it("does not do anything while the DB is being closed", async () => {
 			db.set("key3", 3);
 			db.delete("key2");
 			db.set("key3", 3.5);
@@ -700,6 +700,12 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: `{"k": "key1", "v": 1}`,
+				openClose: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
 			});
 		});
 		afterEach(async () => {
@@ -751,6 +757,22 @@ describe("lib/db", () => {
 			expect(compressSpy).toBeCalledTimes(1);
 		});
 
+		it("doesn't trigger when different keys are added", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 20; i++) {
+				db.set("key" + i, i);
+			}
+			await db.close();
+			expect(compressSpy).not.toBeCalled();
+		});
+
 		it("triggers after intervalMs", async () => {
 			db = new JsonlDB(testFilename, {
 				autoCompress: {
@@ -800,20 +822,42 @@ describe("lib/db", () => {
 			await db.close();
 		});
 
-		it("doesn't trigger when different keys are added", async () => {
-			db = new JsonlDB(testFilename, {
+		it("compresses after opening when onOpen is true", async () => {
+			db = new JsonlDB("openClose", {
 				autoCompress: {
-					sizeFactor: 4,
+					onOpen: true,
 				},
 			});
 			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
+			expect(compressSpy).toBeCalledTimes(1);
 
-			for (let i = 2; i <= 20; i++) {
-				db.set("key" + i, i);
-			}
+			await wait(20);
+
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
+			);
+
 			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+		});
+
+		it("compresses during close when onClose is true", async () => {
+			db = new JsonlDB("openClose", {
+				autoCompress: {
+					onClose: true,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
 			expect(compressSpy).not.toBeCalled();
+
+			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
+			);
 		});
 	});
 
