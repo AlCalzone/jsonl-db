@@ -60,6 +60,54 @@ function assertEqual<
 }
 
 describe("lib/db", () => {
+	describe("constructor", () => {
+		describe("validates autoCompress options", () => {
+			it("sizeFactor <= 1", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								sizeFactor: 0.9,
+							},
+						}),
+				).toThrowError("sizeFactor");
+			});
+
+			it("minimumSize <= 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								sizeFactorMinimumSize: -1,
+							},
+						}),
+				).toThrowError("sizeFactorMinimumSize");
+			});
+
+			it("intervalMs < 10", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								intervalMs: 9,
+							},
+						}),
+				).toThrowError("intervalMs");
+			});
+
+			it("intervalMinChanges < 10", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								intervalMinChanges: 0,
+							},
+						}),
+				).toThrowError("intervalMinChanges");
+			});
+		});
+	});
+
 	describe("open()", () => {
 		beforeEach(() => {
 			mockFs({
@@ -506,7 +554,7 @@ describe("lib/db", () => {
 			);
 		});
 
-		it("does not do anything when the DB is being closed", async () => {
+		it("does not do anything while the DB is being closed", async () => {
 			db.set("key3", 3);
 			db.delete("key2");
 			db.set("key3", 3.5);
@@ -544,6 +592,272 @@ describe("lib/db", () => {
 			await db.open();
 
 			assertEqual(db, map);
+		});
+
+		it("blocks the close() call", async () => {
+			// simulate a slow FS
+			mockMoveFileThrottle = 50;
+			const map = new Map<any, any>([
+				["key1", 1],
+				["key2", "2"],
+			]);
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+					map.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+					map.set(`${i}`, i);
+				}
+			}
+			db.compress();
+			await db.close();
+			await db.open();
+
+			assertEqual(db, map);
+		});
+	});
+
+	describe("uncompressedSize", () => {
+		const testFilename = "uncompressedSize.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: `
+{"k": "key1", "v": 1}
+{"k": "key2", "v": "2"}
+{"k": "key1"}
+{"k": "key2"}
+{"k": "key2", "v": "2"}
+{"k": "key3", "v": 3}
+{"k": "key3"}
+`,
+			});
+			db = new JsonlDB(testFilename);
+			await db.open();
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+			mockMoveFileThrottle = 0;
+		});
+
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.uncompressedSize).toThrowError("not open");
+		});
+
+		it("returns the non-empty line count of the db file", async () => {
+			expect(db.uncompressedSize).toBe(7);
+		});
+
+		it("increases by 1 for each set command", async () => {
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(8);
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(9);
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(10);
+			db.set("key5", 2);
+			expect(db.uncompressedSize).toBe(11);
+		});
+
+		it("increases by 1 for each non-noop delete", async () => {
+			db.delete("key4");
+			expect(db.uncompressedSize).toBe(7);
+			db.delete("key2");
+			expect(db.uncompressedSize).toBe(8);
+			db.delete("key2");
+			expect(db.uncompressedSize).toBe(8);
+		});
+
+		it("is reset to 0 after clear()", async () => {
+			db.clear();
+			expect(db.uncompressedSize).toBe(0);
+		});
+
+		it("is reset to the compressed size afer compress()", async () => {
+			await db.compress();
+			expect(db.uncompressedSize).toBe(1);
+		});
+
+		it("writes during compress are counted", async () => {
+			// simulate a slow FS
+			mockMoveFileThrottle = 50;
+			const compressPromise = db.compress();
+			await wait(20);
+
+			db.set("key1", "value1");
+			await compressPromise;
+
+			expect(db.uncompressedSize).toBe(2);
+		});
+	});
+
+	describe("auto-compression", () => {
+		const testFilename = "autoCompress.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: `{"k": "key1", "v": 1}`,
+				openClose: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
+			});
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+		});
+
+		it("triggers when uncompressedSize >= size * sizeFactor", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 9; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+				if (i <= 3) {
+					expect(compressSpy).not.toBeCalled();
+				} else if (i <= 6) {
+					expect(compressSpy).toBeCalledTimes(1);
+				} else {
+					expect(compressSpy).toBeCalledTimes(2);
+				}
+			}
+
+			await db.close();
+		});
+
+		it("..., but only above the minimum size", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+					sizeFactorMinimumSize: 20,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 20; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+			}
+			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+		});
+
+		it("doesn't trigger when different keys are added", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					sizeFactor: 4,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 20; i++) {
+				db.set("key" + i, i);
+			}
+			await db.close();
+			expect(compressSpy).not.toBeCalled();
+		});
+
+		it("triggers after intervalMs", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					intervalMs: 100,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 15; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+				if (i <= 5) {
+					expect(compressSpy).not.toBeCalled();
+				} else if (i <= 10) {
+					expect(compressSpy).toBeCalledTimes(1);
+				} else {
+					expect(compressSpy).toBeCalledTimes(2);
+				}
+			}
+
+			await db.close();
+		});
+
+		it("..., but only if there were at least intervalMinChanges changes", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					intervalMs: 100,
+					intervalMinChanges: 2,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			await wait(100);
+			expect(compressSpy).not.toBeCalled();
+
+			db.set("key1", 1);
+			await wait(100);
+			expect(compressSpy).not.toBeCalled(); // only 1 change
+
+			db.set("key1", 1);
+			await wait(100);
+			expect(compressSpy).toBeCalledTimes(1); // two changes
+
+			await db.close();
+		});
+
+		it("compresses after opening when onOpen is true", async () => {
+			db = new JsonlDB("openClose", {
+				autoCompress: {
+					onOpen: true,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+			expect(compressSpy).toBeCalledTimes(1);
+
+			await wait(20);
+
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
+			);
+
+			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+		});
+
+		it("compresses during close when onClose is true", async () => {
+			db = new JsonlDB("openClose", {
+				autoCompress: {
+					onClose: true,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+			expect(compressSpy).not.toBeCalled();
+
+			await db.close();
+			expect(compressSpy).toBeCalledTimes(1);
+
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
+			);
 		});
 	});
 
