@@ -32,6 +32,14 @@ export interface JsonlDBOptions<V> {
 		 * Configure the minimum size necessary for auto-compression based on size. Default: 0
 		 */
 		sizeFactorMinimumSize: number;
+		/**
+		 * Compress after a certain time has passed. Default: never
+		 */
+		intervalMs: number;
+		/**
+		 * Configure the minimum count of changes for auto-compression based on time. Default: 1
+		 */
+		intervalMinChanges: number;
 	}>;
 }
 
@@ -50,19 +58,41 @@ export class JsonlDB<V extends unknown = unknown> {
 		this.keys = this._db.keys.bind(this._db);
 		this.values = this._db.values.bind(this._db);
 		this[Symbol.iterator] = this._db[Symbol.iterator].bind(this._db);
+
+		// Start regular auto-compression
+		const { intervalMs, intervalMinChanges = 1 } =
+			options.autoCompress ?? {};
+		if (intervalMs) {
+			this.compressInterval = setInterval(() => {
+				if (this._changesSinceLastCompress >= intervalMinChanges) {
+					void this.compress();
+				}
+			}, intervalMs);
+		}
 	}
 
 	private validateOptions(options: JsonlDBOptions<V>): void {
 		if (options.autoCompress) {
-			const { sizeFactor, sizeFactorMinimumSize } = options.autoCompress;
+			const {
+				sizeFactor,
+				sizeFactorMinimumSize,
+				intervalMs,
+				intervalMinChanges,
+			} = options.autoCompress;
 			if (sizeFactor != undefined && sizeFactor <= 1) {
-				throw new Error("Invalid sizeFactor");
+				throw new Error("sizeFactor must be > 1");
 			}
 			if (
 				sizeFactorMinimumSize != undefined &&
 				sizeFactorMinimumSize < 0
 			) {
-				throw new Error("Invalid sizeFactorMinimumSize");
+				throw new Error("sizeFactorMinimumSize must be >= 0");
+			}
+			if (intervalMs != undefined && intervalMs < 10) {
+				throw new Error("intervalMs must be >= 10");
+			}
+			if (intervalMinChanges != undefined && intervalMinChanges < 1) {
+				throw new Error("intervalMinChanges must be >= 1");
 			}
 		}
 	}
@@ -95,6 +125,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		return this._uncompressedSize;
 	}
 
+	private _changesSinceLastCompress: number = 0;
+
 	private _isOpen: boolean = false;
 	public get isOpen(): boolean {
 		return this._isOpen;
@@ -104,6 +136,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	private _compressBacklog: stream.PassThrough | undefined;
 	private _writeBacklog: stream.PassThrough | undefined;
 	private _dumpBacklog: stream.PassThrough | undefined;
+	private compressInterval: NodeJS.Timeout | undefined;
 
 	private _openPromise: DeferredPromise<void> | undefined;
 	// /** Opens the database file or creates it if it doesn't exist */
@@ -239,12 +272,13 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	// TODO: use cork() and uncork() to throttle filesystem accesses
 
-	private updateUncompressedSize(command: string): void {
+	private updateStatistics(command: string): void {
 		if (command === "") {
 			this._uncompressedSize = 0;
 		} else {
 			this._uncompressedSize++;
 		}
+		this._changesSinceLastCompress++;
 	}
 
 	private needToCompress(): boolean {
@@ -274,7 +308,7 @@ export class JsonlDB<V extends unknown = unknown> {
 			this._compressBacklog.write(line);
 		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
 			// Update line statistics
-			this.updateUncompressedSize(line);
+			this.updateStatistics(line);
 
 			// Either compress or write to the main file, never both
 			if (!noAutoCompress && this.needToCompress()) {
@@ -367,6 +401,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Immediately remember the database size or writes while compressing
 		// will be incorrectly reflected
 		this._uncompressedSize = this.size;
+		this._changesSinceLastCompress = 0;
 		await this.dump();
 		// After dumping, restart the write thread so no duplicate entries get written
 		this._closeDBPromise = createDeferredPromise();
@@ -390,12 +425,13 @@ export class JsonlDB<V extends unknown = unknown> {
 		// In case there is any data in the backlog stream, persist that too
 		let line: string;
 		while (null !== (line = this._compressBacklog.read())) {
-			this.updateUncompressedSize(line);
+			this.updateStatistics(line);
 			this._writeBacklog!.write(line);
 		}
 		this._compressBacklog.destroy();
 		this._compressBacklog = undefined;
 
+		// If any method is waiting for the compress process, signal it that we're done
 		this.compressPromise.resolve();
 		this.compressPromise = undefined;
 	}
@@ -405,6 +441,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
 		this._isOpen = false;
+		if (this.compressInterval) clearInterval(this.compressInterval);
 		// Wait until any pending compress processes are complete
 		if (this.compressPromise) await this.compressPromise;
 

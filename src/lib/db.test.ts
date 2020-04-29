@@ -83,6 +83,28 @@ describe("lib/db", () => {
 						}),
 				).toThrowError("sizeFactorMinimumSize");
 			});
+
+			it("intervalMs < 10", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								intervalMs: 9,
+							},
+						}),
+				).toThrowError("intervalMs");
+			});
+
+			it("intervalMinChanges < 10", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							autoCompress: {
+								intervalMinChanges: 0,
+							},
+						}),
+				).toThrowError("intervalMinChanges");
+			});
 		});
 	});
 
@@ -727,6 +749,55 @@ describe("lib/db", () => {
 			}
 			await db.close();
 			expect(compressSpy).toBeCalledTimes(1);
+		});
+
+		it("triggers after intervalMs", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					intervalMs: 100,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			for (let i = 2; i <= 15; i++) {
+				db.set("key1", i);
+				// compress is async, so give it some time
+				await wait(20);
+				if (i <= 5) {
+					expect(compressSpy).not.toBeCalled();
+				} else if (i <= 10) {
+					expect(compressSpy).toBeCalledTimes(1);
+				} else {
+					expect(compressSpy).toBeCalledTimes(2);
+				}
+			}
+
+			await db.close();
+		});
+
+		it("..., but only if there were at least intervalMinChanges changes", async () => {
+			db = new JsonlDB(testFilename, {
+				autoCompress: {
+					intervalMs: 100,
+					intervalMinChanges: 2,
+				},
+			});
+			const compressSpy = jest.spyOn(db, "compress");
+			await db.open();
+
+			await wait(100);
+			expect(compressSpy).not.toBeCalled();
+
+			db.set("key1", 1);
+			await wait(100);
+			expect(compressSpy).not.toBeCalled(); // only 1 change
+
+			db.set("key1", 1);
+			await wait(100);
+			expect(compressSpy).toBeCalledTimes(1); // two changes
+
+			await db.close();
 		});
 
 		it("doesn't trigger when different keys are added", async () => {
