@@ -547,6 +547,82 @@ describe("lib/db", () => {
 		});
 	});
 
+	describe("uncompressedSize", () => {
+		const testFilename = "uncompressedSize.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: `
+{"k": "key1", "v": 1}
+{"k": "key2", "v": "2"}
+{"k": "key1"}
+{"k": "key2"}
+{"k": "key2", "v": "2"}
+{"k": "key3", "v": 3}
+{"k": "key3"}
+`,
+			});
+			db = new JsonlDB(testFilename);
+			await db.open();
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+			mockMoveFileThrottle = 0;
+		});
+
+		it("throws when the DB is not open", async () => {
+			await db.close();
+			expect(() => db.uncompressedSize).toThrowError("not open");
+		});
+
+		it("returns the non-empty line count of the db file", async () => {
+			expect(db.uncompressedSize).toBe(7);
+		});
+
+		it("increases by 1 for each set command", async () => {
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(8);
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(9);
+			db.set("key4", 1);
+			expect(db.uncompressedSize).toBe(10);
+			db.set("key5", 2);
+			expect(db.uncompressedSize).toBe(11);
+		});
+
+		it("increases by 1 for each non-noop delete", async () => {
+			db.delete("key4");
+			expect(db.uncompressedSize).toBe(7);
+			db.delete("key2");
+			expect(db.uncompressedSize).toBe(8);
+			db.delete("key2");
+			expect(db.uncompressedSize).toBe(8);
+		});
+
+		it("is reset to 0 after clear()", async () => {
+			db.clear();
+			expect(db.uncompressedSize).toBe(0);
+		});
+
+		it("is reset to the compressed size afer compress()", async () => {
+			await db.compress();
+			expect(db.uncompressedSize).toBe(1);
+		});
+
+		it("writes during compress are counted", async () => {
+			// simulate a slow FS
+			mockMoveFileThrottle = 50;
+			const compressPromise = db.compress();
+			await wait(20);
+
+			db.set("key1", "value1");
+			await compressPromise;
+
+			expect(db.uncompressedSize).toBe(2);
+		});
+	});
+
 	describe("consistency checks", () => {
 		const testFilename = "checks.jsonl";
 		let db: JsonlDB;

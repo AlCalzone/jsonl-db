@@ -14,10 +14,10 @@ export interface JsonlDBOptions<V> {
 	 */
 	ignoreReadErrors?: boolean;
 	/**
-	 * An optional reviver functionn (similar to JSON.parse) to transform parsed values before they are accessible in the database.
+	 * An optional reviver function (similar to JSON.parse) to transform parsed values before they are accessible in the database.
 	 * If this function is defined, it must always return a value.
 	 */
-	reviver?: (key: string, value: any) => any;
+	reviver?: (key: string, value: any) => V;
 }
 
 export class JsonlDB<V extends unknown = unknown> {
@@ -54,6 +54,15 @@ export class JsonlDB<V extends unknown = unknown> {
 		return this._db.size;
 	}
 
+	private _uncompressedSize: number = Number.NaN;
+	/** Returns the line count of the appendonly file, excluding empty lines */
+	public get uncompressedSize(): number {
+		if (!this._isOpen) {
+			throw new Error("The database is not open!");
+		}
+		return this._uncompressedSize;
+	}
+
 	private _isOpen: boolean = false;
 	public get isOpen(): boolean {
 		return this._isOpen;
@@ -76,6 +85,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		});
 		const rl = readline.createInterface(readStream);
 		let lineNo = 0;
+		this._uncompressedSize = 0;
 
 		try {
 			await new Promise<void>((resolve, reject) => {
@@ -85,6 +95,7 @@ export class JsonlDB<V extends unknown = unknown> {
 					// Skip empty lines
 					if (!line) return;
 					try {
+						this._uncompressedSize++;
 						this.parseLine(line);
 					} catch (e) {
 						if (this.options.ignoreReadErrors === true) {
@@ -196,11 +207,22 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	// TODO: use cork() and uncork() to throttle filesystem accesses
 
+	private updateUncompressedSize(command: string): void {
+		if (command === "") {
+			this._uncompressedSize = 0;
+		} else {
+			this._uncompressedSize++;
+		}
+	}
+
 	private write(line: string): void {
 		/* istanbul ignore else */
 		if (this._compressBacklog && !this._compressBacklog.destroyed) {
+			// The compress backlog handling also handles the file statistics
 			this._compressBacklog.write(line);
 		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
+			// Update line statistics
+			this.updateUncompressedSize(line);
 			this._writeBacklog.write(line);
 		} else {
 			throw new Error(
@@ -282,6 +304,9 @@ export class JsonlDB<V extends unknown = unknown> {
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
 		if (!this._writeBacklog) return;
+		// Immediately remember the database size or writes while compressing
+		// will be incorrectly reflected
+		this._uncompressedSize = this.size;
 		await this.dump();
 		// After dumping, restart the write thread so no duplicate entries get written
 		this._closeDBPromise = createDeferredPromise();
@@ -305,6 +330,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		// In case there is any data in the backlog stream, persist that too
 		let line: string;
 		while (null !== (line = this._compressBacklog.read())) {
+			this.updateUncompressedSize(line);
 			this._writeBacklog!.write(line);
 		}
 		this._compressBacklog.destroy();
