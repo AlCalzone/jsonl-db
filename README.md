@@ -107,7 +107,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 1.0.1 (2020-04-29)
 Export `JsonlDBOptions` from the main entry point
 
 ### 1.0.0 (2020-04-29)
