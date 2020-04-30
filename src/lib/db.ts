@@ -345,7 +345,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	/** Saves a compressed copy of the DB into `<filename>.dump` */
 	public async dump(): Promise<void> {
-		this._closeDumpPromise = createDeferredPromise();
+		this._dumpPromise = createDeferredPromise();
 		// Open the file for writing (or truncate if it exists)
 		this._dumpFd = await fs.open(this.dumpFilename, "w+");
 		// And start dumping the DB
@@ -373,13 +373,14 @@ export class JsonlDB<V extends unknown = unknown> {
 		await fs.close(this._dumpFd);
 
 		this._dumpFd = undefined;
-		this._closeDumpPromise.resolve();
+		this._dumpPromise.resolve();
 	}
 
 	/** Asynchronously performs all write actions */
 	private async writeThread(): Promise<void> {
 		// This must be called before any awaits
 		this._writeBacklog = new stream.PassThrough({ objectMode: true });
+		this._writePromise = createDeferredPromise();
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
@@ -395,16 +396,17 @@ export class JsonlDB<V extends unknown = unknown> {
 				await fs.appendFile(this._fd, action + "\n");
 			}
 		}
+		this._writeBacklog.destroy();
 		// The write backlog was closed, this means that the DB is being closed
 		// close the file and resolve the close promise
 		await fs.close(this._fd);
-		this._closeDBPromise?.resolve();
+		this._writePromise.resolve();
 	}
 
 	private compressPromise: DeferredPromise<void> | undefined;
-	/** Compresses the db by dumping it and overwriting the aof file. */
-	public async compress(): Promise<void> {
+	private async compressInternal(): Promise<void> {
 		if (!this._writeBacklog || this.compressPromise) return;
+
 		this.compressPromise = createDeferredPromise();
 		// Immediately remember the database size or writes while compressing
 		// will be incorrectly reflected
@@ -412,13 +414,12 @@ export class JsonlDB<V extends unknown = unknown> {
 		this._changesSinceLastCompress = 0;
 		await this.dump();
 		// After dumping, restart the write thread so no duplicate entries get written
-		this._closeDBPromise = createDeferredPromise();
 		// Disable writing into the backlog stream and buffer all writes
 		// in the compress backlog in the meantime
 		this._compressBacklog = new stream.PassThrough({ objectMode: true });
 		this._writeBacklog.end();
+		await this._writePromise;
 		this._writeBacklog = undefined;
-		await this._closeDBPromise;
 
 		// Replace the aof file
 		await fs.move(this.filename, this.filename + ".bak");
@@ -444,8 +445,18 @@ export class JsonlDB<V extends unknown = unknown> {
 		this.compressPromise = undefined;
 	}
 
-	private _closeDBPromise: DeferredPromise<void> | undefined;
-	private _closeDumpPromise: DeferredPromise<void> | undefined;
+	/** Compresses the db by dumping it and overwriting the aof file. */
+	public async compress(): Promise<void> {
+		if (!this._isOpen) return;
+
+		return this.compressInternal();
+	}
+
+	/** Resolves when the `writeThread()` is finished */
+	private _writePromise: DeferredPromise<void> | undefined;
+	/** Resolves when the `dump()` method is finished */
+	private _dumpPromise: DeferredPromise<void> | undefined;
+
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
 		this._isOpen = false;
@@ -456,28 +467,26 @@ export class JsonlDB<V extends unknown = unknown> {
 			await this.compressPromise;
 		} else if (this.options.autoCompress?.onClose) {
 			// Compress if required
-			await this.compress();
+			await this.compressInternal();
 		}
 
+		// Disable writing into the backlog stream and wait for the write process to finish
 		if (this._writeBacklog) {
-			this._closeDBPromise = createDeferredPromise();
-			// Disable writing into the backlog stream
 			this._writeBacklog.end();
-			this._writeBacklog = undefined;
-			// Disable writing into the dump backlog stream
-			this._dumpBacklog?.end();
-			this._dumpBacklog = undefined;
-			await this._closeDBPromise;
+			await this._writePromise;
 		}
 
 		// Also wait for a potential dump process to finish
-		if (this._closeDumpPromise) {
-			await this._closeDumpPromise;
+		/* istanbul ignore next - this is impossible to test since it requires exact timing */
+		if (this._dumpBacklog) {
+			// Disable writing into the dump backlog stream
+			this._dumpBacklog.end();
+			await this._dumpPromise;
 		}
 
 		// Reset all variables
-		this._closeDBPromise = undefined;
-		this._closeDumpPromise = undefined;
+		this._writePromise = undefined;
+		this._dumpPromise = undefined;
 		this._db.clear();
 		this._fd = undefined;
 		this._dumpFd = undefined;

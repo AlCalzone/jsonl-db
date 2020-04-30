@@ -505,6 +505,30 @@ describe("lib/db", () => {
 			await dumpdb.open();
 			assertEqual(db, dumpdb);
 		});
+
+		it("blocks the close() call", async () => {
+			for (let i = 1; i < 20; i++) {
+				if (i % 4 === 0) {
+					db.delete(`${i - 1}`);
+				} else {
+					db.set(`${i}`, i);
+				}
+			}
+
+			// simulate a slow FS
+			mockAppendFileThrottle = 50;
+			// dump without waiting
+			db.dump();
+			// wait a bit, so the files are being opened
+			await wait(100);
+			// and write something that will be put into the dump backlog
+			db.set("21", 21);
+
+			await db.close();
+			await db.open();
+			await dumpdb.open();
+			assertEqual(db, dumpdb);
+		});
 	});
 
 	describe("compress()", () => {
@@ -521,6 +545,7 @@ describe("lib/db", () => {
 			await db.close();
 			mockFs.restore();
 			mockMoveFileThrottle = 0;
+			mockAppendFileThrottle = 0;
 		});
 
 		it("overwrites the append-only file with a compressed version", async () => {
@@ -564,6 +589,24 @@ describe("lib/db", () => {
 
 			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key3","v":3}\n{"k":"key2"}\n{"k":"key3","v":3.5}\n',
+			);
+		});
+
+		it("works correctly while the DB is being compressed already", async () => {
+			db.set("key3", 3);
+			db.delete("key2");
+			db.set("key3", 3.5);
+
+			// simulate slow FS
+			mockMoveFileThrottle = 10;
+			mockAppendFileThrottle = 10;
+
+			const compressPromise = db.compress();
+			await db.compress();
+			await compressPromise;
+
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
 		});
 
@@ -851,9 +894,9 @@ describe("lib/db", () => {
 			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 			expect(compressSpy).not.toBeCalled();
-
 			await db.close();
-			expect(compressSpy).toBeCalledTimes(1);
+			// Cannot use this, since close calls compressInternal
+			// expect(compressSpy).toBeCalledTimes(1);
 
 			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
