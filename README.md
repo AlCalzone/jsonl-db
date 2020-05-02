@@ -33,12 +33,17 @@ if (db.has("key")) {
 }
 // ...forEach, keys(), entries(), values(), ...
 ```
+
+### Handling invalid data
+
 If corrupt data is encountered while opening the DB, the call to `open()` will be rejected. If this is to be expected, use the options parameter on the constructor to turn on forgiving behavior:
 ```ts
 const db = new DB("/path/to/file", { ignoreReadErrors: true });
 await db.open();
 ```
 **Warning:** This may result in inconsistent data since invalid lines are silently ignored.
+
+### Support custom objects/values
 
 You can optionally transform the parsed values by passing a reviver function. This allows storing non-primitive objects in the database if those can be transformed to JSON (e.g. by overwriting the `toJSON` method).
 ```ts
@@ -50,6 +55,8 @@ const db = new DB("/path/to/file", { reviver });
 await db.open();
 ```
 
+### Closing the database
+
 Data written to the DB is persisted asynchronously. Be sure to call `close()` when you no longer need the database in order to flush all pending writes and close all files:
 
 ```ts
@@ -57,7 +64,21 @@ await db.close();
 ```
 Now, `db.isOpen` is `false`. While the db is not open, any calls that access the data will throw an error.
 
+### Controlling file system access
+
+By default, the database immediately writes to the database file. You can throttle the write accesses using the `throttleFS` constructor option. Be aware that buffered data will be lost in case the process crashes.
+```ts
+const db = new DB("/path/to/file", { throttleFS: { /* throttle options */ } });
+```
+The following options exist:
+| Option | Default | Description |
+|-----------------|---------|-------------|
+| intervalMs | 0 | Write to the database file no more than every `intervalMs` milliseconds. |
+| maxBufferedCommands | +Infinity | Force a write after `maxBufferedCommands` have been buffered. This reduces memory consumption and data loss in case of a crash. |
+
 To create a compressed copy of the database in `/path/to/file.dump`, use the `dump()` method. If any data is written to the db during the dump, it is appended to the dump but most likely compressed.
+
+### Copying and compressing the database
 
 ```ts
 await db.dump();
@@ -85,6 +106,8 @@ The following options exist (all optional) and can be combined:
 | onClose | false | Compress when closing the DB |
 | onOpen | false | Compress after opening the DB |
 
+### Import / Export
+
 Importing JSON files can be done this way:
 ```ts
 // pass a filename, the import will be asynchronous
@@ -106,6 +129,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+
+### __WORK IN PROGRESS__
+Added functionality to throttle write accesses
 
 ### 1.0.1 (2020-04-29)
 Export `JsonlDBOptions` from the main entry point
