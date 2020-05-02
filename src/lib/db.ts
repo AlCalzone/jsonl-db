@@ -45,6 +45,21 @@ export interface JsonlDBOptions<V> {
 		/** Compress after opening the DB. Default: false */
 		onOpen: boolean;
 	}>;
+
+	/**
+	 * Can be used to throttle write accesses to the filesystem. By default,
+	 * every change is immediately written to the FS
+	 */
+	throttleFS?: {
+		/**
+		 * Minimum wait time between two consecutive write accesses. Default: 0
+		 */
+		intervalMs: number;
+		/**
+		 * Maximum commands to be buffered before forcing a write access. Default: +Infinity
+		 */
+		maxBufferedCommands?: number;
+	};
 }
 
 export class JsonlDB<V extends unknown = unknown> {
@@ -99,6 +114,15 @@ export class JsonlDB<V extends unknown = unknown> {
 				throw new Error("intervalMinChanges must be >= 1");
 			}
 		}
+		if (options.throttleFS) {
+			const { intervalMs, maxBufferedCommands } = options.throttleFS;
+			if (intervalMs != undefined && intervalMs < 0) {
+				throw new Error("intervalMs must be >= 0");
+			}
+			if (maxBufferedCommands != undefined && maxBufferedCommands < 0) {
+				throw new Error("maxBufferedCommands must be >= 0");
+			}
+		}
 	}
 
 	public readonly filename: string;
@@ -139,6 +163,8 @@ export class JsonlDB<V extends unknown = unknown> {
 	private _dumpFd: number | undefined;
 	private _compressBacklog: stream.PassThrough | undefined;
 	private _writeBacklog: stream.PassThrough | undefined;
+	private _writeCorkCount = 0;
+	private _writeCorkTimeout: NodeJS.Timeout | undefined;
 	private _dumpBacklog: stream.PassThrough | undefined;
 	private compressInterval: NodeJS.Timeout | undefined;
 
@@ -278,8 +304,6 @@ export class JsonlDB<V extends unknown = unknown> {
 		return fs.writeJSON(filename, composeObject([...this._db]), options);
 	}
 
-	// TODO: use cork() and uncork() to throttle filesystem accesses
-
 	private updateStatistics(command: string): void {
 		if (command === "") {
 			this._uncompressedSize = 0;
@@ -305,6 +329,53 @@ export class JsonlDB<V extends unknown = unknown> {
 		return false;
 	}
 
+	private cork(): void {
+		/* istanbul ignore else - this is impossible to test */
+		if (this._writeBacklog && this._writeCorkCount === 0) {
+			this._writeBacklog.cork();
+			this._writeCorkCount++;
+		}
+	}
+
+	private uncork(): void {
+		if (this._writeCorkCount > 0 && this._writeCorkTimeout) {
+			clearTimeout(this._writeCorkTimeout);
+			this._writeCorkTimeout = undefined;
+		}
+		while (this._writeBacklog && this._writeCorkCount > 0) {
+			this._writeBacklog.uncork();
+			this._writeCorkCount--;
+		}
+	}
+
+	private autoCork(): void {
+		if (!this.options.throttleFS?.intervalMs) return;
+
+		const schedule = (): void => {
+			if (this._writeCorkTimeout) {
+				clearTimeout(this._writeCorkTimeout);
+			}
+			this._writeCorkTimeout = setTimeout(
+				() => maybeUncork.bind(this)(),
+				this.options.throttleFS!.intervalMs,
+			);
+		};
+
+		function maybeUncork(this: JsonlDB): void {
+			if (this._writeBacklog && this._writeBacklog.writableLength > 0) {
+				// This gets the stream flowing again. The write thread will call
+				// autoCork when it is done
+				this.uncork();
+			} else {
+				// Nothing to uncork, schedule the next timeout
+				schedule();
+			}
+		}
+		// Cork once and schedule the uncork
+		this.cork();
+		schedule();
+	}
+
 	/**
 	 * Writes a line into the correct backlog
 	 * @param noAutoCompress Whether auto-compression should be disabled
@@ -323,6 +394,15 @@ export class JsonlDB<V extends unknown = unknown> {
 				this.compress();
 			} else {
 				this._writeBacklog.write(line);
+				// If this is a throttled stream, uncork it as soon as the write
+				// buffer is larger than configured
+				if (
+					this.options.throttleFS?.maxBufferedCommands != undefined &&
+					this._writeBacklog.writableLength >
+						this.options.throttleFS.maxBufferedCommands
+				) {
+					this.uncork();
+				}
 			}
 		} else {
 			throw new Error(
@@ -380,6 +460,8 @@ export class JsonlDB<V extends unknown = unknown> {
 	private async writeThread(): Promise<void> {
 		// This must be called before any awaits
 		this._writeBacklog = new stream.PassThrough({ objectMode: true });
+		this.autoCork();
+
 		this._writePromise = createDeferredPromise();
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
@@ -394,6 +476,10 @@ export class JsonlDB<V extends unknown = unknown> {
 				this._fd = await fs.open(this.filename, "w+");
 			} else {
 				await fs.appendFile(this._fd, action + "\n");
+			}
+			// When this is a throttled stream, auto-cork it when it was drained
+			if (this._writeBacklog.readableLength === 0) {
+				this.autoCork();
 			}
 		}
 		this._writeBacklog.destroy();
@@ -417,6 +503,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Disable writing into the backlog stream and buffer all writes
 		// in the compress backlog in the meantime
 		this._compressBacklog = new stream.PassThrough({ objectMode: true });
+		this.uncork();
 		this._writeBacklog.end();
 		await this._writePromise;
 		this._writeBacklog = undefined;
@@ -461,6 +548,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	public async close(): Promise<void> {
 		this._isOpen = false;
 		if (this.compressInterval) clearInterval(this.compressInterval);
+		if (this._writeCorkTimeout) clearTimeout(this._writeCorkTimeout);
 
 		if (this.compressPromise) {
 			// Wait until any pending compress processes are complete
@@ -472,6 +560,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		// Disable writing into the backlog stream and wait for the write process to finish
 		if (this._writeBacklog) {
+			this.uncork();
 			this._writeBacklog.end();
 			await this._writePromise;
 		}
@@ -490,5 +579,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		this._db.clear();
 		this._fd = undefined;
 		this._dumpFd = undefined;
+		this._changesSinceLastCompress = 0;
+		this._uncompressedSize = Number.NaN;
+		this._writeCorkCount = 0;
 	}
 }

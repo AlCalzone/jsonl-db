@@ -106,6 +106,30 @@ describe("lib/db", () => {
 				).toThrowError("intervalMinChanges");
 			});
 		});
+		describe("validates throttleFS options", () => {
+			it("intervalMs < 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							throttleFS: {
+								intervalMs: -1,
+							},
+						}),
+				).toThrowError("intervalMs");
+			});
+
+			it("maxBufferedCommands < 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							throttleFS: {
+								intervalMs: 0,
+								maxBufferedCommands: -1,
+							},
+						}),
+				).toThrowError("maxBufferedCommands");
+			});
+		});
 	});
 
 	describe("open()", () => {
@@ -901,6 +925,129 @@ describe("lib/db", () => {
 			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
+		});
+	});
+
+	describe("throttling FS", () => {
+		const testFilename = "throttled.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: ``,
+			});
+		});
+		afterEach(async () => {
+			if (db) await db.close();
+			mockFs.restore();
+		});
+
+		async function assertFileContent(content: string): Promise<void> {
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				content,
+			);
+		}
+
+		it("changes are only written after intervalMs has passed", async () => {
+			db = new JsonlDB(testFilename, {
+				throttleFS: {
+					intervalMs: 100,
+				},
+			});
+			await db.open();
+
+			// Trigger at least one scheduled cork before the first write
+			await wait(110);
+			await assertFileContent("");
+
+			db.set("1", 1);
+			let expected = `{"k":"1","v":1}\n`;
+			await assertFileContent("");
+
+			await wait(50);
+			for (let i = 2; i <= 100; i++) {
+				db.set(i.toString(), i);
+				await assertFileContent("");
+				expected += `{"k":"${i}","v":${i}}\n`;
+			}
+
+			// Give it a little more time than necessary
+			await wait(60);
+			await assertFileContent(expected);
+		});
+
+		it("or the maximum buffer size was reached", async () => {
+			db = new JsonlDB(testFilename, {
+				throttleFS: {
+					intervalMs: 100,
+					maxBufferedCommands: 5,
+				},
+			});
+			await db.open();
+
+			db.set("1", 1);
+			let expected = `{"k":"1","v":1}\n`;
+			await assertFileContent("");
+
+			await wait(50);
+			for (let i = 2; i <= 6; i++) {
+				db.set(i.toString(), i);
+				expected += `{"k":"${i}","v":${i}}\n`;
+				if (i <= 5) await assertFileContent("");
+			}
+
+			// Give it a little time to write
+			await wait(10);
+			await assertFileContent(expected);
+		});
+
+		it("works after compressing", async () => {
+			db = new JsonlDB(testFilename, {
+				throttleFS: {
+					intervalMs: 100,
+				},
+			});
+			await db.open();
+			await db.compress();
+
+			db.set("1", 1);
+			let expected = `{"k":"1","v":1}\n`;
+			await assertFileContent("");
+
+			await wait(50);
+			for (let i = 2; i <= 100; i++) {
+				db.set(i.toString(), i);
+				await assertFileContent("");
+				expected += `{"k":"${i}","v":${i}}\n`;
+			}
+
+			// Give it a little more time than necessary
+			await wait(60);
+			await assertFileContent(expected);
+		});
+
+		it("should still flush the buffer on close", async () => {
+			db = new JsonlDB(testFilename, {
+				throttleFS: {
+					intervalMs: 100,
+				},
+			});
+			await db.open();
+
+			db.set("1", 1);
+			let expected = `{"k":"1","v":1}\n`;
+			await assertFileContent("");
+
+			await wait(50);
+			for (let i = 2; i <= 100; i++) {
+				db.set(i.toString(), i);
+				await assertFileContent("");
+				expected += `{"k":"${i}","v":${i}}\n`;
+			}
+
+			// Close the db before the next forced flush
+			await db.close();
+
+			await assertFileContent(expected);
 		});
 	});
 
