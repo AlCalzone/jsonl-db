@@ -116,7 +116,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 		if (options.throttleFS) {
 			const { intervalMs, maxBufferedCommands } = options.throttleFS;
-			if (intervalMs != undefined && intervalMs < 0) {
+			if (intervalMs < 0) {
 				throw new Error("intervalMs must be >= 0");
 			}
 			if (maxBufferedCommands != undefined && maxBufferedCommands < 0) {
