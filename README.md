@@ -73,8 +73,8 @@ const db = new DB("/path/to/file", { throttleFS: { /* throttle options */ } });
 The following options exist:
 | Option | Default | Description |
 |-----------------|---------|-------------|
-| intervalMs | 0 | Write to the database file no more than every `intervalMs` milliseconds. |
-| maxBufferedCommands | +Infinity | Force a write after `maxBufferedCommands` have been buffered. This reduces memory consumption and data loss in case of a crash. |
+| `intervalMs` | `0` | Write to the database file no more than every `intervalMs` milliseconds. |
+| `maxBufferedCommands` | `+Infinity` | Force a write after `maxBufferedCommands` have been buffered. This reduces memory consumption and data loss in case of a crash. |
 
 To create a compressed copy of the database in `/path/to/file.dump`, use the `dump()` method. If any data is written to the db during the dump, it is appended to the dump but most likely compressed.
 
@@ -99,12 +99,12 @@ const db = new DB("/path/to/file", { autoCompress: { /* auto compress options */
 The following options exist (all optional) and can be combined:
 | Option | Default | Description |
 |-----------------|---------|-------------|
-| sizeFactor | +Infinity | Compress when `uncompressedSize >= size * sizeFactor` |
-| sizeFactorMinimumSize | 0 | Configure the minimum size necessary for auto-compression based on size |
-| intervalMs | +Infinity | Compress after a certain time has passed |
-| intervalMinChanges | 1 | Configure the minimum count of changes for auto-compression based on time |
-| onClose | false | Compress when closing the DB |
-| onOpen | false | Compress after opening the DB |
+| `sizeFactor` | `+Infinity` | Compress when `uncompressedSize >= size * sizeFactor` |
+| `sizeFactorMinimumSize` | 0 | Configure the minimum size necessary for auto-compression based on size |
+| `intervalMs` | `+Infinity` | Compress after a certain time has passed |
+| `intervalMinChanges` | 1 | Configure the minimum count of changes for auto-compression based on time |
+| `onClose` | `false` | Compress when closing the DB |
+| `onOpen` | `false` | Compress after opening the DB |
 
 ### Import / Export
 
