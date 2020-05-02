@@ -130,7 +130,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 1.1.0 (2020-05-02)
 Added functionality to throttle write accesses
 
 ### 1.0.1 (2020-04-29)
