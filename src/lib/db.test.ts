@@ -162,6 +162,12 @@ describe("lib/db", () => {
 			await db.close();
 		});
 
+		it("also creates leading directories if they don't exist", async () => {
+			const db = new JsonlDB("this/path/does/not/exist");
+			await db.open();
+			await db.close();
+		});
+
 		it("reads the file if it exists", async () => {
 			const db = new JsonlDB("yes");
 			await db.open();

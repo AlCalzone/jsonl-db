@@ -4,6 +4,7 @@ import {
 } from "alcalzone-shared/deferred-promise";
 import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
+import * as path from "path";
 import * as readline from "readline";
 import * as stream from "stream";
 
@@ -172,6 +173,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	// /** Opens the database file or creates it if it doesn't exist */
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
+		await fs.ensureDir(path.dirname(this.filename));
 		this._fd = await fs.open(this.filename, "a+");
 		const readStream = fs.createReadStream(this.filename, {
 			encoding: "utf8",
