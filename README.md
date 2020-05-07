@@ -130,6 +130,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 1.1.1 (2020-05-07)
+Leading directories are now created if they don't exist
+
 ### 1.1.0 (2020-05-02)
 Added functionality to throttle write accesses
 
