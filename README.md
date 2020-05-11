@@ -130,6 +130,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 1.1.2 (2020-05-11)
+Fixed a timeout leak that would prevent Node.js from exiting
+
 ### 1.1.1 (2020-05-07)
 Leading directories are now created if they don't exist
 
