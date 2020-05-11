@@ -769,16 +769,18 @@ describe("lib/db", () => {
 
 	describe("auto-compression", () => {
 		const testFilename = "autoCompress.jsonl";
-		let db: JsonlDB;
-		beforeEach(async () => {
-			mockFs({
-				[testFilename]: `{"k": "key1", "v": 1}`,
-				openClose: `
+		const uncompressed = `
 {"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"key3","v":3}
 {"k":"key2"}
-{"k":"key3","v":3.5}`,
+{"k":"key3","v":3.5}`;
+
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: `{"k": "key1", "v": 1}`,
+				openClose: uncompressed,
 			});
 		});
 		afterEach(async () => {
@@ -901,18 +903,19 @@ describe("lib/db", () => {
 					onOpen: true,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
+
+			// Cannot use this, since open calls compressInternal
+			// expect(compressSpy).toBeCalledTimes(1);
 			await db.open();
-			expect(compressSpy).toBeCalledTimes(1);
-
-			await wait(20);
-
 			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
 
+			db.set("key3", 1);
 			await db.close();
-			expect(compressSpy).toBeCalledTimes(1);
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n{"k":"key3","v":1}\n',
+			);
 		});
 
 		it("compresses during close when onClose is true", async () => {
@@ -921,12 +924,14 @@ describe("lib/db", () => {
 					onClose: true,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
-			await db.open();
-			expect(compressSpy).not.toBeCalled();
-			await db.close();
 			// Cannot use this, since close calls compressInternal
 			// expect(compressSpy).toBeCalledTimes(1);
+			await db.open();
+			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
+				uncompressed,
+			);
+
+			await db.close();
 
 			await expect(fs.readFile("openClose", "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',

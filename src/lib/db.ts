@@ -78,17 +78,6 @@ export class JsonlDB<V extends unknown = unknown> {
 		this.keys = this._db.keys.bind(this._db);
 		this.values = this._db.values.bind(this._db);
 		this[Symbol.iterator] = this._db[Symbol.iterator].bind(this._db);
-
-		// Start regular auto-compression
-		const { intervalMs, intervalMinChanges = 1 } =
-			options.autoCompress ?? {};
-		if (intervalMs) {
-			this.compressInterval = setInterval(() => {
-				if (this._changesSinceLastCompress >= intervalMinChanges) {
-					void this.compress();
-				}
-			}, intervalMs);
-		}
 	}
 
 	private validateOptions(options: JsonlDBOptions<V>): void {
@@ -167,7 +156,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	private _writeCorkCount = 0;
 	private _writeCorkTimeout: NodeJS.Timeout | undefined;
 	private _dumpBacklog: stream.PassThrough | undefined;
-	private compressInterval: NodeJS.Timeout | undefined;
+	private _compressInterval: NodeJS.Timeout | undefined;
 
 	private _openPromise: DeferredPromise<void> | undefined;
 	// /** Opens the database file or creates it if it doesn't exist */
@@ -215,14 +204,27 @@ export class JsonlDB<V extends unknown = unknown> {
 			this._fd = undefined;
 		}
 
+		const { onOpen, intervalMs, intervalMinChanges = 1 } =
+			this.options.autoCompress ?? {};
+
+		// If the DB should be compressed while opening, do it before starting the write thread
+		if (onOpen) {
+			await this.compressInternal();
+		}
+
 		// Start the write thread
 		this._openPromise = createDeferredPromise();
 		void this.writeThread();
 		await this._openPromise;
 		this._isOpen = true;
 
-		if (this.options.autoCompress?.onOpen) {
-			await this.compress();
+		// Start regular auto-compression
+		if (intervalMs) {
+			this._compressInterval = setInterval(() => {
+				if (this._changesSinceLastCompress >= intervalMinChanges) {
+					void this.compress();
+				}
+			}, intervalMs);
 		}
 	}
 
@@ -353,29 +355,21 @@ export class JsonlDB<V extends unknown = unknown> {
 	private autoCork(): void {
 		if (!this.options.throttleFS?.intervalMs) return;
 
-		const schedule = (): void => {
-			if (this._writeCorkTimeout) {
-				clearTimeout(this._writeCorkTimeout);
-			}
-			this._writeCorkTimeout = setTimeout(
-				() => maybeUncork.bind(this)(),
-				this.options.throttleFS!.intervalMs,
-			);
-		};
-
-		function maybeUncork(this: JsonlDB): void {
+		const maybeUncork = (): void => {
 			if (this._writeBacklog && this._writeBacklog.writableLength > 0) {
 				// This gets the stream flowing again. The write thread will call
 				// autoCork when it is done
 				this.uncork();
 			} else {
 				// Nothing to uncork, schedule the next timeout
-				schedule();
+				this._writeCorkTimeout?.refresh();
 			}
-		}
+		};
 		// Cork once and schedule the uncork
 		this.cork();
-		schedule();
+		this._writeCorkTimeout =
+			this._writeCorkTimeout?.refresh() ??
+			setTimeout(maybeUncork, this.options.throttleFS.intervalMs);
 	}
 
 	/**
@@ -480,7 +474,7 @@ export class JsonlDB<V extends unknown = unknown> {
 				await fs.appendFile(this._fd, action + "\n");
 			}
 			// When this is a throttled stream, auto-cork it when it was drained
-			if (this._writeBacklog.readableLength === 0) {
+			if (this._writeBacklog.readableLength === 0 && this._isOpen) {
 				this.autoCork();
 			}
 		}
@@ -493,7 +487,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	private compressPromise: DeferredPromise<void> | undefined;
 	private async compressInternal(): Promise<void> {
-		if (!this._writeBacklog || this.compressPromise) return;
+		if (this.compressPromise) return;
 
 		this.compressPromise = createDeferredPromise();
 		// Immediately remember the database size or writes while compressing
@@ -506,19 +500,24 @@ export class JsonlDB<V extends unknown = unknown> {
 		// in the compress backlog in the meantime
 		this._compressBacklog = new stream.PassThrough({ objectMode: true });
 		this.uncork();
-		this._writeBacklog.end();
-		await this._writePromise;
-		this._writeBacklog = undefined;
+
+		if (this._writeBacklog) {
+			this._writeBacklog.end();
+			await this._writePromise;
+			this._writeBacklog = undefined;
+		}
 
 		// Replace the aof file
 		await fs.move(this.filename, this.filename + ".bak");
 		await fs.move(this.dumpFilename, this.filename);
 		await fs.unlink(this.filename + ".bak");
 
-		// Start the write thread again
-		this._openPromise = createDeferredPromise();
-		void this.writeThread();
-		await this._openPromise;
+		if (this._isOpen) {
+			// Start the write thread again
+			this._openPromise = createDeferredPromise();
+			void this.writeThread();
+			await this._openPromise;
+		}
 
 		// In case there is any data in the backlog stream, persist that too
 		let line: string;
@@ -549,7 +548,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
 		this._isOpen = false;
-		if (this.compressInterval) clearInterval(this.compressInterval);
+		if (this._compressInterval) clearInterval(this._compressInterval);
 		if (this._writeCorkTimeout) clearTimeout(this._writeCorkTimeout);
 
 		if (this.compressPromise) {
