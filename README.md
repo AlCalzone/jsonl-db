@@ -134,7 +134,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
-### __WORK IN PROGRESS__
+### 1.2.0 (2020-05-25)
 Added an optional serializer function to transform non-primitive objects before writing to the DB file
 
 ### 1.1.2 (2020-05-11)
