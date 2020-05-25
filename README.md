@@ -45,13 +45,17 @@ await db.open();
 
 ### Support custom objects/values
 
-You can optionally transform the parsed values by passing a reviver function. This allows storing non-primitive objects in the database if those can be transformed to JSON (e.g. by overwriting the `toJSON` method).
+You can optionally transform the parsed values by passing a reviver function. This allows storing non-primitive objects in the database if those can be transformed to JSON (e.g. by overwriting the `toJSON` method). To control the transformation values before they are saved to the database, use the serializer function. This is necessary for `Map`s, `Set`s, `WeakMap`s and `WeakSet`s.
 ```ts
-function reviver(key: string, value: any) {
+function reviver(key: string, serializedValue: any) {
+	// MUST return a value. If you don't want to transform `serializedValue`, return it.
+}
+
+function serializer(key: string, value: any) {
 	// MUST return a value. If you don't want to transform `value`, return it.
 }
 
-const db = new DB("/path/to/file", { reviver });
+const db = new DB("/path/to/file", { reviver, serializer });
 await db.open();
 ```
 
@@ -129,6 +133,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+
+### __WORK IN PROGRESS__
+Added an optional serializer function to transform non-primitive objects before writing to the DB file
 
 ### 1.1.2 (2020-05-11)
 Fixed a timeout leak that would prevent Node.js from exiting

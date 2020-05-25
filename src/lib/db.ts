@@ -19,6 +19,11 @@ export interface JsonlDBOptions<V> {
 	 * If this function is defined, it must always return a value.
 	 */
 	reviver?: (key: string, value: any) => V;
+	/**
+	 * An optional serializer function (similar to JSON.serialize) to transform values before they are written to the database file.
+	 * If this function is defined, it must always return a value.
+	 */
+	serializer?: (key: string, value: V) => any;
 
 	/**
 	 * Configure when the DB should be automatically compressed.
@@ -413,7 +418,10 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	private entryToLine(key: string, value?: V): string {
 		if (value !== undefined) {
-			return JSON.stringify({ k: key, v: value });
+			return JSON.stringify({
+				k: key,
+				v: this.options.serializer?.(key, value) ?? value,
+			});
 		} else {
 			return JSON.stringify({ k: key });
 		}

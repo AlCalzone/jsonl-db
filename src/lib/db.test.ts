@@ -1120,4 +1120,32 @@ describe("lib/db", () => {
 			);
 		});
 	});
+
+	describe("custom serializer", () => {
+		const testFilename = "serializer.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs();
+		});
+		afterEach(mockFs.restore);
+
+		it("before saving, values are transformed using the serializer function if any is passed", async () => {
+			const serializer = jest.fn().mockReturnValue("ffff");
+			db = new JsonlDB(testFilename, { serializer });
+			await db.open();
+
+			const map = new Map<any, any>([
+				[1, "foo"],
+				[2, "bar"],
+			]);
+			db.set("test", map);
+			await db.close();
+
+			await wait(10);
+
+			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+				`{"k":"test","v":"ffff"}\n`,
+			);
+		});
+	});
 });
