@@ -1,3 +1,0 @@
-extends: wotan:recommended
-rules:
-    return-never-call: off
