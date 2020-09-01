@@ -8,6 +8,7 @@ let mockMoveFileThrottle = 0;
 
 jest.mock("fs-extra", () => {
 	const originalFS = jest.requireActual("fs-extra");
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
 	const wait = require("alcalzone-shared/async").wait;
 	return {
 		__esModule: true, // Use it when dealing with esModules
