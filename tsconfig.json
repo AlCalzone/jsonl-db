@@ -1,35 +1,26 @@
 {
 	"compilerOptions": {
-		"plugins": [
-			{
-				"name": "@fimbul/mithotyn",
-				"displayErrorsAsWarnings": true
-			}
-		],
-
 		"noEmit": true,
 		"declaration": false,
 		"module": "commonjs",
 		"moduleResolution": "node",
 		"noEmitOnError": true,
-
 		"strict": true,
-
 		"outDir": "build/",
 		"removeComments": false,
 		"importsNotUsedAsValues": "error",
-
 		"sourceMap": true,
 		"inlineSourceMap": false,
 		"stripInternal": true,
 		"target": "es2017",
-
 		"watch": false, // true breaks circleci
 		"pretty": true,
-		"types": ["node", "jest", "jest-extended"],
-
+		"types": [
+			"node",
+			"jest",
+			"jest-extended"
+		],
 		"allowSyntheticDefaultImports": true,
-
 		/* Advanced Options */
 		"forceConsistentCasingInFileNames": true /* Disallow inconsistently-cased references to the same file. */
 	},
@@ -39,5 +30,8 @@
 		"test/**/*.ts",
 		"gulpfile.ts"
 	],
-	"exclude": ["build/**", "node_modules/**"]
+	"exclude": [
+		"build/**",
+		"node_modules/**"
+	]
 }
