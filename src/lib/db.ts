@@ -68,6 +68,18 @@ export interface JsonlDBOptions<V> {
 	};
 }
 
+/** This is the same as `fs-extra`'s WriteOptions */
+export interface FsWriteOptions {
+	encoding?: string | null;
+	flag?: string;
+	mode?: number;
+	// eslint-disable-next-line @typescript-eslint/ban-types
+	fs?: object;
+	replacer?: any;
+	spaces?: number | string;
+	EOL?: string;
+}
+
 export class JsonlDB<V extends unknown = unknown> {
 	public constructor(filename: string, options: JsonlDBOptions<V> = {}) {
 		this.validateOptions(options);
@@ -305,7 +317,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	public async exportJson(
 		filename: string,
-		options?: fs.WriteOptions,
+		options?: FsWriteOptions,
 	): Promise<void> {
 		if (!this._isOpen) {
 			return Promise.reject(new Error("The database is not open!"));
