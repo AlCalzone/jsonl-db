@@ -134,6 +134,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 1.2.2 (2020-10-16)
+When consuming this library without `skipLibCheck`, `@types/fs-extra` is no longer required
+
 ### 1.2.1 (2020-08-20)
 Update dependencies
 
