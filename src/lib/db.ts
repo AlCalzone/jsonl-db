@@ -482,9 +482,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
-		for await (const action of this._writeBacklog as AsyncIterable<
-			string
-		>) {
+		for await (const action of this
+			._writeBacklog as AsyncIterable<string>) {
 			if (action === "") {
 				// Since we opened the file in append mode, we cannot truncate
 				// therefore close and open in write mode again
