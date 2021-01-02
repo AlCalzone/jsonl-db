@@ -13,17 +13,17 @@ jest.mock("fs-extra", () => {
 	return {
 		__esModule: true, // Use it when dealing with esModules
 		...originalFS,
-		appendFile: jest.fn().mockImplementation(async (fs, str) => {
+		appendFile: jest.fn().mockImplementation(async (...args) => {
 			if (mockAppendFileThrottle > 0) {
 				await wait(mockAppendFileThrottle);
 			}
-			return originalFS.appendFile(fs, str);
+			return originalFS.appendFile(...args);
 		}),
-		move: jest.fn().mockImplementation(async (src, dest) => {
+		move: jest.fn().mockImplementation(async (...args) => {
 			if (mockMoveFileThrottle > 0) {
 				await wait(mockMoveFileThrottle);
 			}
-			return originalFS.move(src, dest);
+			return originalFS.move(...args);
 		}),
 		createReadStream: jest.fn().mockImplementation((path, options) => {
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -692,6 +692,30 @@ describe("lib/db", () => {
 		});
 	});
 
+	describe("compress() regression test: backup file exists", () => {
+		const testFilename = "compress-with-bak.jsonl";
+		let db: JsonlDB;
+		beforeEach(async () => {
+			mockFs({
+				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				[`${testFilename}.bak`]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+			});
+			db = new JsonlDB(testFilename);
+			await db.open();
+		});
+		afterEach(async () => {
+			await db.close();
+			mockFs.restore();
+			mockMoveFileThrottle = 0;
+			mockAppendFileThrottle = 0;
+		});
+
+		it("does not crash", async () => {
+			await db.compress();
+			await db.close();
+		});
+	});
+
 	describe("uncompressedSize", () => {
 		const testFilename = "uncompressedSize.jsonl";
 		let db: JsonlDB;
@@ -850,6 +874,8 @@ describe("lib/db", () => {
 		});
 
 		it("triggers after intervalMs", async () => {
+			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+
 			db = new JsonlDB(testFilename, {
 				autoCompress: {
 					intervalMs: 100,
@@ -858,17 +884,12 @@ describe("lib/db", () => {
 			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 
-			for (let i = 2; i <= 15; i++) {
+			for (let i = 1; i <= 3; i++) {
+				// Don't test too often, or we'll run into a mismatch
 				db.set("key1", i);
 				// compress is async, so give it some time
-				await wait(20);
-				if (i <= 5) {
-					expect(compressSpy).not.toBeCalled();
-				} else if (i <= 10) {
-					expect(compressSpy).toBeCalledTimes(1);
-				} else {
-					expect(compressSpy).toBeCalledTimes(2);
-				}
+				await wait(110);
+				expect(compressSpy).toBeCalledTimes(i);
 			}
 
 			await db.close();

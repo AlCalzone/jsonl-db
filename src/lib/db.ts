@@ -527,8 +527,10 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 
 		// Replace the aof file
-		await fs.move(this.filename, this.filename + ".bak");
-		await fs.move(this.dumpFilename, this.filename);
+		await fs.move(this.filename, this.filename + ".bak", {
+			overwrite: true,
+		});
+		await fs.move(this.dumpFilename, this.filename, { overwrite: true });
 		await fs.unlink(this.filename + ".bak");
 
 		if (this._isOpen) {

@@ -134,6 +134,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### __WORK IN PROGRESS__
+Fixed a crash that happens while compressing the DB when the `.bak` file exists
+
 ### 1.2.2 (2020-10-16)
 When consuming this library without `skipLibCheck`, `@types/fs-extra` is no longer required
 
