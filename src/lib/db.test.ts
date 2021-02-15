@@ -138,15 +138,17 @@ describe("lib/db", () => {
 			mockFs({
 				yes:
 					// Final newline omitted on purpose
-					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}',
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}',
 				emptyLines:
-					'\n{"k": "key1", "v": 1}\n\n\n{"k": "key2", "v": "2"}\n\n',
-				broken: `{"k": "key1", "v": 1}\n{"k":,"v":1}\n`,
+					'\n{"k":"key1","v":1}\n\n\n{"k":"key2","v":"2"}\n\n',
+				broken: `{"k":"key1","v":1}\n{"k":,"v":1}\n`,
+				broken2: `{"k":"key1","v":1}\n{"k":"key2","v":}\n`,
+				broken3: `{"k":"key1"\n`,
 				reviver: `
-{"k": "key1", "v": 1}
-{"k": "key2", "v": "2"}
-{"k": "key1"}
-{"k": "key1", "v": true}`,
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key1"}
+{"k":"key1","v":true}`,
 			});
 		});
 		afterEach(mockFs.restore);
@@ -215,8 +217,35 @@ describe("lib/db", () => {
 			}
 		});
 
+		it("throws when the file contains invalid JSON (part 2)", async () => {
+			const db = new JsonlDB("broken2");
+			try {
+				await db.open();
+				throw new Error("it did not throw");
+			} catch (e) {
+				expect(e.message).toMatch(/invalid data/i);
+				expect(e.message).toMatch("line 2");
+			}
+		});
+
+		it("throws when the file contains invalid JSON (part 3)", async () => {
+			const db = new JsonlDB("broken3");
+			try {
+				await db.open();
+				throw new Error("it did not throw");
+			} catch (e) {
+				expect(e.message).toMatch(/invalid data/i);
+				expect(e.message).toMatch("line 1");
+			}
+		});
+
 		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true", async () => {
 			const db = new JsonlDB("broken", { ignoreReadErrors: true });
+			await expect(db.open()).toResolve();
+		});
+
+		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true (part 2)", async () => {
+			const db = new JsonlDB("broken2", { ignoreReadErrors: true });
 			await expect(db.open()).toResolve();
 		});
 
@@ -224,8 +253,7 @@ describe("lib/db", () => {
 			const reviver = jest.fn().mockReturnValue("eeee");
 			const db = new JsonlDB("reviver", { reviver });
 			await db.open();
-			expect(reviver).toBeCalledTimes(3);
-			expect(reviver).toBeCalledWith("key1", 1);
+			expect(reviver).toBeCalledTimes(2);
 			expect(reviver).toBeCalledWith("key2", "2");
 			expect(reviver).toBeCalledWith("key1", true);
 
@@ -241,7 +269,7 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]:
-					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}\n',
 			});
 			db = new JsonlDB(testFilename);
 			await db.open();
@@ -722,13 +750,13 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: `
-{"k": "key1", "v": 1}
-{"k": "key2", "v": "2"}
-{"k": "key1"}
-{"k": "key2"}
-{"k": "key2", "v": "2"}
-{"k": "key3", "v": 3}
-{"k": "key3"}
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key1"}
+{"k":"key2"}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key3"}
 `,
 			});
 			db = new JsonlDB(testFilename);
@@ -804,7 +832,7 @@ describe("lib/db", () => {
 		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
-				[testFilename]: `{"k": "key1", "v": 1}`,
+				[testFilename]: `{"k":"key1","v":1}`,
 				openClose: uncompressed,
 			});
 		});
