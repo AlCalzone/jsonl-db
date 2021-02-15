@@ -134,6 +134,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 
+### 1.2.4 (2021-02-15)
+Reduced the work done while opening a DB
+
 ### 1.2.3 (2021-01-02)
 Fixed a crash that happens while compressing the DB when the `.bak` file exists
 
