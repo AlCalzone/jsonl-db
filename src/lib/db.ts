@@ -192,6 +192,10 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		try {
 			await new Promise<void>((resolve, reject) => {
+				const actualLines = new Map<
+					string,
+					[lineNo: number, line: string]
+				>();
 				rl.on("line", (line) => {
 					// Count source lines for the error message
 					lineNo++;
@@ -199,7 +203,9 @@ export class JsonlDB<V extends unknown = unknown> {
 					if (!line) return;
 					try {
 						this._uncompressedSize++;
-						this.parseLine(line);
+						// Extract the key and only remember the last line for each one
+						const key = this.parseKey(line);
+						actualLines.set(key, [lineNo, line]);
 					} catch (e) {
 						if (this.options.ignoreReadErrors === true) {
 							return;
@@ -212,7 +218,25 @@ export class JsonlDB<V extends unknown = unknown> {
 						}
 					}
 				});
-				rl.on("close", resolve);
+				rl.on("close", () => {
+					// We've read all lines, now only parse those that contain useful data
+					for (const [lineNo, line] of actualLines.values()) {
+						try {
+							this.parseLine(line);
+						} catch (e) {
+							if (this.options.ignoreReadErrors === true) {
+								continue;
+							} else {
+								reject(
+									new Error(
+										`Cannot open file: Invalid data in line ${lineNo}`,
+									),
+								);
+							}
+						}
+					}
+					resolve();
+				});
 			});
 		} finally {
 			// Close the file again to avoid EBADF
@@ -243,6 +267,24 @@ export class JsonlDB<V extends unknown = unknown> {
 				}
 			}, intervalMs);
 		}
+	}
+
+	/** Reads a line and extracts the key without doing a full-blown JSON.parse() */
+	private parseKey(line: string): string {
+		if (0 !== line.indexOf(`{"k":"`)) {
+			throw new Error("invalid data");
+		}
+		const keyStart = 6;
+		let keyEnd = line.indexOf(`","v":`, keyStart);
+		if (-1 === keyEnd) {
+			// try again with a delete command
+			if (line.endsWith(`"}`)) {
+				keyEnd = line.length - 2;
+			} else {
+				throw new Error("invalid data");
+			}
+		}
+		return line.slice(keyStart, keyEnd);
 	}
 
 	/** Parses a line and updates the internal DB correspondingly */

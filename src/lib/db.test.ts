@@ -138,15 +138,15 @@ describe("lib/db", () => {
 			mockFs({
 				yes:
 					// Final newline omitted on purpose
-					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}',
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}',
 				emptyLines:
-					'\n{"k": "key1", "v": 1}\n\n\n{"k": "key2", "v": "2"}\n\n',
-				broken: `{"k": "key1", "v": 1}\n{"k":,"v":1}\n`,
+					'\n{"k":"key1","v":1}\n\n\n{"k":"key2","v":"2"}\n\n',
+				broken: `{"k":"key1","v":1}\n{"k":,"v":1}\n`,
 				reviver: `
-{"k": "key1", "v": 1}
-{"k": "key2", "v": "2"}
-{"k": "key1"}
-{"k": "key1", "v": true}`,
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key1"}
+{"k":"key1","v":true}`,
 			});
 		});
 		afterEach(mockFs.restore);
@@ -224,8 +224,7 @@ describe("lib/db", () => {
 			const reviver = jest.fn().mockReturnValue("eeee");
 			const db = new JsonlDB("reviver", { reviver });
 			await db.open();
-			expect(reviver).toBeCalledTimes(3);
-			expect(reviver).toBeCalledWith("key1", 1);
+			expect(reviver).toBeCalledTimes(2);
 			expect(reviver).toBeCalledWith("key2", "2");
 			expect(reviver).toBeCalledWith("key1", true);
 
@@ -241,7 +240,7 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]:
-					'{"k": "key1", "v": 1}\n{"k": "key2", "v": "2"}\n{"k": "key1"}\n',
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}\n',
 			});
 			db = new JsonlDB(testFilename);
 			await db.open();
@@ -722,13 +721,13 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: `
-{"k": "key1", "v": 1}
-{"k": "key2", "v": "2"}
-{"k": "key1"}
-{"k": "key2"}
-{"k": "key2", "v": "2"}
-{"k": "key3", "v": 3}
-{"k": "key3"}
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key1"}
+{"k":"key2"}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key3"}
 `,
 			});
 			db = new JsonlDB(testFilename);
@@ -804,7 +803,7 @@ describe("lib/db", () => {
 		let db: JsonlDB;
 		beforeEach(async () => {
 			mockFs({
-				[testFilename]: `{"k": "key1", "v": 1}`,
+				[testFilename]: `{"k":"key1","v":1}`,
 				openClose: uncompressed,
 			});
 		});
