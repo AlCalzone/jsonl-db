@@ -34,7 +34,7 @@
   "homepage": "https://github.com/AlCalzone/jsonl-db#readme",
   "devDependencies": {
     "@alcalzone/release-script": "^1.8.3",
-    "@babel/cli": "^7.13.14",
+    "@babel/cli": "^7.13.16",
     "@babel/core": "^7.13.14",
     "@babel/plugin-proposal-class-properties": "^7.13.0",
     "@babel/plugin-proposal-decorators": "^7.13.5",
@@ -44,7 +44,7 @@
     "@babel/plugin-proposal-optional-chaining": "^7.13.12",
     "@babel/preset-env": "^7.13.12",
     "@babel/preset-typescript": "^7.13.0",
-    "@commitlint/cli": "^12.0.1",
+    "@commitlint/cli": "^12.1.1",
     "@commitlint/config-conventional": "^12.0.1",
     "@types/fs-extra": "^9.0.11",
     "@types/jest": "^26.0.22",
