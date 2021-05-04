@@ -84,12 +84,8 @@
     "lint:ts": "eslint --ext .ts src",
     "lint": "npm run lint:ts",
     "commit": "git-cz",
-    "release": "release-script"
-  },
-  "husky": {
-    "hooks": {
-      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
-    }
+    "release": "release-script",
+    "prepare": "husky install"
   },
   "config": {
     "commitizen": {
