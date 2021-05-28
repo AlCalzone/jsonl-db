@@ -177,6 +177,24 @@ describe("lib/db", () => {
 			await db.close();
 		});
 
+		it("throws if another DB has opened the DB file at the same time", async () => {
+			const db1 = new JsonlDB("yes");
+			await db1.open();
+
+			const db2 = new JsonlDB("yes");
+			try {
+				await db2.open();
+				throw new Error("it did not throw");
+			} catch (e) {
+				expect(e.message).toMatch(/Failed to lock/i);
+			}
+
+			await db1.close();
+
+			await db2.open();
+			await db2.close();
+		});
+
 		it("should contain the correct data", async () => {
 			const db = new JsonlDB("yes");
 			await db.open();
