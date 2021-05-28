@@ -5,6 +5,7 @@ import {
 import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as path from "path";
+import * as lockfile from "proper-lockfile";
 import * as readline from "readline";
 import * as stream from "stream";
 
@@ -180,6 +181,25 @@ export class JsonlDB<V extends unknown = unknown> {
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
 		await fs.ensureDir(path.dirname(this.filename));
+
+		try {
+			await lockfile.lock(this.filename, {
+				// We cannot be sure that the file exists before acquiring the lock
+				realpath: false,
+
+				stale:
+					// Avoid timeouts during testing
+					process.env.NODE_ENV === "test"
+						? 100000
+						: /* istanbul ignore next - this is impossible to test */ undefined,
+
+				onCompromised: /* istanbul ignore next */ () => {
+					// do nothing
+				},
+			});
+		} catch (e) {
+			throw new Error(`Failed to lock DB file "${this.filename}"!`);
+		}
 		this._fd = await fs.open(this.filename, "a+");
 		const readStream = fs.createReadStream(this.filename, {
 			encoding: "utf8",
@@ -245,8 +265,11 @@ export class JsonlDB<V extends unknown = unknown> {
 			this._fd = undefined;
 		}
 
-		const { onOpen, intervalMs, intervalMinChanges = 1 } =
-			this.options.autoCompress ?? {};
+		const {
+			onOpen,
+			intervalMs,
+			intervalMinChanges = 1,
+		} = this.options.autoCompress ?? {};
 
 		// If the DB should be compressed while opening, do it before starting the write thread
 		if (onOpen) {
@@ -646,5 +669,13 @@ export class JsonlDB<V extends unknown = unknown> {
 		this._changesSinceLastCompress = 0;
 		this._uncompressedSize = Number.NaN;
 		this._writeCorkCount = 0;
+
+		// Free the lock
+		try {
+			if (await lockfile.check(this.filename, { realpath: false }))
+				await lockfile.unlock(this.filename, { realpath: false });
+		} catch {
+			// whatever - just don't crash
+		}
 	}
 }

@@ -52,7 +52,7 @@ function assertEqual<
 		keys(): IterableIterator<string>;
 		has(key: string): boolean;
 		get(key: string): any;
-	}
+	},
 >(one: T1, two: T2) {
 	for (const key of one.keys()) {
 		expect(two.has(key)).toBeTrue();
@@ -175,6 +175,24 @@ describe("lib/db", () => {
 			const db = new JsonlDB("yes");
 			await db.open();
 			await db.close();
+		});
+
+		it("throws if another DB has opened the DB file at the same time", async () => {
+			const db1 = new JsonlDB("yes");
+			await db1.open();
+
+			const db2 = new JsonlDB("yes");
+			try {
+				await db2.open();
+				throw new Error("it did not throw");
+			} catch (e) {
+				expect(e.message).toMatch(/Failed to lock/i);
+			}
+
+			await db1.close();
+
+			await db2.open();
+			await db2.close();
 		});
 
 		it("should contain the correct data", async () => {
@@ -726,7 +744,8 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
-				[`${testFilename}.bak`]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				[`${testFilename}.bak`]:
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
 			db = new JsonlDB(testFilename);
 			await db.open();
