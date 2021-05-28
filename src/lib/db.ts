@@ -265,8 +265,11 @@ export class JsonlDB<V extends unknown = unknown> {
 			this._fd = undefined;
 		}
 
-		const { onOpen, intervalMs, intervalMinChanges = 1 } =
-			this.options.autoCompress ?? {};
+		const {
+			onOpen,
+			intervalMs,
+			intervalMinChanges = 1,
+		} = this.options.autoCompress ?? {};
 
 		// If the DB should be compressed while opening, do it before starting the write thread
 		if (onOpen) {

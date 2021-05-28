@@ -52,7 +52,7 @@ function assertEqual<
 		keys(): IterableIterator<string>;
 		has(key: string): boolean;
 		get(key: string): any;
-	}
+	},
 >(one: T1, two: T2) {
 	for (const key of one.keys()) {
 		expect(two.has(key)).toBeTrue();
@@ -744,7 +744,8 @@ describe("lib/db", () => {
 		beforeEach(async () => {
 			mockFs({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
-				[`${testFilename}.bak`]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
+				[`${testFilename}.bak`]:
+					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
 			db = new JsonlDB(testFilename);
 			await db.open();
