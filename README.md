@@ -133,6 +133,8 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 1.2.5 (2021-05-29)
+Prevent opening one DB file in multiple instances of the DB using lockfiles
 
 ### 1.2.4 (2021-02-15)
 Reduced the work done while opening a DB
