@@ -17,5 +17,8 @@
 			"source.organizeImports": true
 		}
 	},
-	"editor.rulers": [72, 80, 120]
+	"editor.rulers": [72, 80, 120],
+	"javascript.preferences.importModuleSpecifierEnding": "js",
+	"typescript.preferences.importModuleSpecifierEnding": "js",
+	"typescript.preferences.importModuleSpecifier": "project-relative"
 }

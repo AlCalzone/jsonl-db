@@ -9,7 +9,7 @@ module.exports = {
 		"plugin:@typescript-eslint/recommended", // Uses the recommended rules from the @typescript-eslint/eslint-plugin
 		"plugin:prettier/recommended", // Enables eslint-plugin-prettier and displays prettier errors as ESLint errors. Make sure this is always the last configuration in the extends array.
 	],
-	plugins: [],
+	plugins: ["unicorn"],
 	reportUnusedDisableDirectives: true,
 	rules: {
 		// Place to specify ESLint rules. Can be used to overwrite rules specified from the extended configs
@@ -81,6 +81,7 @@ module.exports = {
 			{ allowArgumentsExplicitlyTypedAsAny: true },
 		],
 		"@typescript-eslint/no-this-alias": "off",
+		"unicorn/prefer-module": "error",
 	},
 	overrides: [
 		{
@@ -97,6 +98,7 @@ module.exports = {
 				"@typescript-eslint/no-floating-promises": "off",
 				"@typescript-eslint/require-await": "off",
 				"@typescript-eslint/unbound-method": "warn",
+				"unicorn/prefer-module": "off",
 			},
 		},
 		{
