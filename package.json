@@ -70,12 +70,12 @@
     "prettier": "^2.3.0",
     "source-map-support": "^0.5.19",
     "tiny-glob": "^0.2.9",
-    "ts-node": "^9.1.1",
+    "ts-node": "^10.0.0",
     "typescript": "^4.3.2"
   },
   "dependencies": {
     "alcalzone-shared": "^3.0.4",
-    "fs-extra": "^9.1.0",
+    "fs-extra": "^10.0.0",
     "proper-lockfile": "^4.1.2"
   },
   "scripts": {
