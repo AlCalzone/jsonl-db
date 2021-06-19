@@ -52,7 +52,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [12.x, 14.x, 16.x]
+        # Node 16.3 is incompatible with mock-fs
+        # https://github.com/tschaub/mock-fs/issues/332
+        node-version: [12.x, 14.x, 16.2]
         os: [ubuntu-latest]
 
     steps:
