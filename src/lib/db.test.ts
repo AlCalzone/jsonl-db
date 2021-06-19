@@ -1,7 +1,7 @@
 import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
 import mockFs from "mock-fs";
-import { JsonlDB } from "./db.js";
+import { JsonlDB } from "./db";
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
