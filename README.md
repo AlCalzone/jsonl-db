@@ -133,6 +133,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 2.0.0 (2021-06-19)
+Update dependencies and drop support for Node.js 10
+
 ### 1.2.5 (2021-05-29)
 Prevent opening one DB file in multiple instances of the DB using lockfiles
 
