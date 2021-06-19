@@ -1,18 +1,18 @@
 {
+	"extends": "@tsconfig/node12/tsconfig.json",
 	"compilerOptions": {
 		"noEmit": true,
-		"declaration": false,
-		"module": "commonjs",
-		"moduleResolution": "node",
 		"noEmitOnError": true,
-		"strict": true,
-		"outDir": "build/",
-		"removeComments": false,
-		"importsNotUsedAsValues": "error",
+		"declaration": false,
+		"outDir": "build/esm",
+		// For ES modules
+		"module": "ES2020",
+		"moduleResolution": "node",
 		"sourceMap": true,
 		"inlineSourceMap": false,
 		"stripInternal": true,
-		"target": "es2017",
+		"removeComments": false,
+		"importsNotUsedAsValues": "error",
 		"watch": false, // true breaks circleci
 		"pretty": true,
 		"types": [
@@ -21,14 +21,10 @@
 			"jest-extended"
 		],
 		"allowSyntheticDefaultImports": true,
-		/* Advanced Options */
-		"forceConsistentCasingInFileNames": true /* Disallow inconsistently-cased references to the same file. */
 	},
 	"include": [
 		"src/**/*.ts",
-		"maintenance/**/*.ts",
-		"test/**/*.ts",
-		"gulpfile.ts"
+		"test/**/*.ts"
 	],
 	"exclude": [
 		"build/**",
