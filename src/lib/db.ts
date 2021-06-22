@@ -84,17 +84,15 @@ export interface FsWriteOptions {
 /**
  * fsync on a directory ensures there are no rename operations etc. which haven't been persisted to disk.
  */
+/* istanbul ignore next - This is impossible to test */
 async function fsyncDir(dirname: string): Promise<void> {
 	// Windows will cause `EPERM: operation not permitted, fsync`
 	// for directories, so don't do this
 
-	/* istanbul ignore else */
 	if (process.platform === "win32") return;
-	else {
-		const fd = await fs.open(dirname, "r");
-		await fs.fsync(fd);
-		await fs.close(fd);
-	}
+	const fd = await fs.open(dirname, "r");
+	await fs.fsync(fd);
+	await fs.close(fd);
 }
 
 export class JsonlDB<V extends unknown = unknown> {
