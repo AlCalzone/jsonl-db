@@ -55,7 +55,6 @@
     "husky": "^6.0.0",
     "jest": "^27.0.3",
     "jest-extended": "^0.11.5",
-    "mock-fs": "^5.0.0",
     "prettier": "^2.3.0",
     "source-map-support": "^0.5.19",
     "ts-node": "^10.0.0",
