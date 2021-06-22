@@ -134,9 +134,10 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	### __WORK IN PROGRESS__
 -->
 ### __WORK IN PROGRESS__
-* Tests now work with the real filesystem instead of `mock-fs`, which breaks in Node.js `16.3+`
 * When opening the DB, recover from crashes that happened while compressing the DB
 * Ensure that the DB files are flushed to disk when closing or renaming files
+* Tests now work with the real filesystem instead of `mock-fs`, which breaks in Node.js `16.3+`
+* Modernized TypeScript build output
 
 ### 2.0.0 (2021-06-19)
 Update dependencies and drop support for Node.js 10
