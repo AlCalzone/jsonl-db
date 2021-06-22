@@ -133,7 +133,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.1.0 (2021-06-22)
 * When opening the DB, recover from crashes that happened while compressing the DB
 * Ensure that the DB files are flushed to disk when closing or renaming files
 * Tests now work with the real filesystem instead of `mock-fs`, which breaks in Node.js `16.3+`
