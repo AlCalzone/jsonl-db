@@ -87,11 +87,14 @@ export interface FsWriteOptions {
 export async function fsyncDir(dirname: string): Promise<void> {
 	// Windows will cause `EPERM: operation not permitted, fsync`
 	// for directories, so don't do this
-	if (process.platform === "win32") return;
 
-	const fd = await fs.open(dirname, "r");
-	await fs.fsync(fd);
-	await fs.close(fd);
+	/* istanbul ignore else */
+	if (process.platform === "win32") return;
+	else {
+		const fd = await fs.open(dirname, "r");
+		await fs.fsync(fd);
+		await fs.close(fd);
+	}
 }
 
 export class JsonlDB<V extends unknown = unknown> {
@@ -335,12 +338,16 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		// Prefer the DB file if it exists, remove the others in case they exist
 		if (dbFileIsOK) {
-			await fs.remove(this.backupFilename).catch(() => {
-				// ignore errors
-			});
-			await fs.remove(this.dumpFilename).catch(() => {
-				// ignore errors
-			});
+			try {
+				await fs.remove(this.backupFilename);
+			} catch {
+				// ignore
+			}
+			try {
+				await fs.remove(this.dumpFilename);
+			} catch {
+				// ignore
+			}
 			return;
 		}
 
@@ -358,9 +365,11 @@ export class JsonlDB<V extends unknown = unknown> {
 			await fs.move(this.backupFilename, this.filename, {
 				overwrite: true,
 			});
-			await fs.remove(this.dumpFilename).catch(() => {
-				// ignore errors
-			});
+			try {
+				await fs.remove(this.dumpFilename);
+			} catch {
+				// ignore
+			}
 			return;
 		}
 
@@ -377,9 +386,11 @@ export class JsonlDB<V extends unknown = unknown> {
 			await fs.move(this.dumpFilename, this.filename, {
 				overwrite: true,
 			});
-			await fs.remove(this.backupFilename).catch(() => {
-				// ignore errors
-			});
+			try {
+				await fs.remove(this.backupFilename);
+			} catch {
+				// ignore
+			}
 			return;
 		}
 	}
