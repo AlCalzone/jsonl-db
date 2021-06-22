@@ -133,6 +133,10 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* When opening the DB, recover from crashes that happened while compressing the DB
+* Ensure that the DB files are flushed to disk when closing or renaming files
+
 ### 1.2.5 (2021-05-29)
 Prevent opening one DB file in multiple instances of the DB using lockfiles
 
