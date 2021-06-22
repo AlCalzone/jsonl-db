@@ -689,8 +689,9 @@ describe("lib/db", () => {
 			db.set("21", 21);
 
 			await db.close();
-			await db.open();
+			// The dumpdb must be opened before the db, because the open call will delete the old dump
 			await dumpdb.open();
+			await db.open();
 			assertEqual(db, dumpdb);
 		});
 	});
@@ -1366,6 +1367,149 @@ describe("lib/db", () => {
 			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"test","v":"ffff"}\n`,
 			);
+		});
+	});
+
+	describe("crash recovery", () => {
+		let testFS: TestFS;
+		let testFSRoot: string;
+		let db: JsonlDB;
+		const testFilename = "recovery.jsonl";
+		let testFilenameFull: string;
+
+		beforeEach(async () => {
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+		});
+
+		afterEach(async () => {
+			if (db) await db.close();
+			await testFS.remove();
+		});
+
+		async function assertCleanedUp() {
+			// The other files should have been cleaned up
+			await expect(fs.pathExists(testFilenameFull)).resolves.toBeTrue();
+			await expect(
+				fs.pathExists(testFilenameFull + ".bak"),
+			).resolves.toBeFalse();
+			await expect(
+				fs.pathExists(testFilenameFull + ".dump"),
+			).resolves.toBeFalse();
+		}
+
+		it("db truncated, .bak ok -> use .bak", async () => {
+			await testFS.create({
+				// Original, uncompressed db in the .bak file
+				[testFilename + ".bak"]: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilenameFull);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3.5);
+
+			await assertCleanedUp();
+			await db.close();
+		});
+
+		it("db missing, .bak ok -> use .bak", async () => {
+			await testFS.create({
+				// Original, uncompressed db in the .bak file
+				[testFilename + ".bak"]: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
+				// (probably) half-complete .dump file
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilenameFull);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3.5);
+
+			await assertCleanedUp();
+
+			await db.close();
+		});
+
+		it("db truncated, .bak truncated, .dump ok -> use .dump", async () => {
+			await testFS.create({
+				// empty, broken .bak file
+				[testFilename + ".bak"]: "",
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file, but better than nothing
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilenameFull);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3);
+
+			await assertCleanedUp();
+
+			await db.close();
+		});
+
+		it("db truncated, .bak missing, .dump ok -> use .dump", async () => {
+			await testFS.create({
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file, but better than nothing
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilenameFull);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3);
+
+			await assertCleanedUp();
+
+			await db.close();
 		});
 	});
 });
