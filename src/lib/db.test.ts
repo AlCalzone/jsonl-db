@@ -602,8 +602,9 @@ describe("lib/db", () => {
 			db.set("21", 21);
 
 			await db.close();
-			await db.open();
+			// The dumpdb must be opened before the db, because the open call will delete the old dump
 			await dumpdb.open();
+			await db.open();
 			assertEqual(db, dumpdb);
 		});
 	});
@@ -1215,6 +1216,144 @@ describe("lib/db", () => {
 			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
 				`{"k":"test","v":"ffff"}\n`,
 			);
+		});
+	});
+
+	describe("crash recovery", () => {
+		let db: JsonlDB;
+		const testFilename = "recovery.jsonl";
+
+		beforeEach(async () => {
+			mockFs();
+		});
+
+		afterEach(async () => {
+			if (db) await db.close();
+			mockFs.restore();
+		});
+
+		async function assertCleanedUp() {
+			// The other files should have been cleaned up
+			await expect(fs.pathExists(testFilename)).resolves.toBeTrue();
+			await expect(
+				fs.pathExists(testFilename + ".bak"),
+			).resolves.toBeFalse();
+			await expect(
+				fs.pathExists(testFilename + ".dump"),
+			).resolves.toBeFalse();
+		}
+
+		it("db truncated, .bak ok -> use .bak", async () => {
+			mockFs({
+				// Original, uncompressed db in the .bak file
+				[testFilename + ".bak"]: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilename);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3.5);
+
+			await assertCleanedUp();
+			await db.close();
+		});
+
+		it("db missing, .bak ok -> use .bak", async () => {
+			mockFs({
+				// Original, uncompressed db in the .bak file
+				[testFilename + ".bak"]: `
+{"k":"key1","v":1}
+{"k":"key2","v":"2"}
+{"k":"key3","v":3}
+{"k":"key2"}
+{"k":"key3","v":3.5}`,
+				// (probably) half-complete .dump file
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilename);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3.5);
+
+			await assertCleanedUp();
+
+			await db.close();
+		});
+
+		it("db truncated, .bak truncated, .dump ok -> use .dump", async () => {
+			mockFs({
+				// empty, broken .bak file
+				[testFilename + ".bak"]: "",
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file, but better than nothing
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilename);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3);
+
+			await assertCleanedUp();
+
+			await db.close();
+		});
+
+		it("db truncated, .bak missing, .dump ok -> use .dump", async () => {
+			mockFs({
+				// empty, broken db file
+				[testFilename]: "",
+				// (probably) half-complete .dump file, but better than nothing
+				[testFilename + ".dump"]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			const db = new JsonlDB(testFilename);
+			await db.open();
+
+			expect(db.size).toBe(2);
+			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key3")).toBeTrue();
+			expect(db.get("key1")).toBe(1);
+			expect(db.get("key3")).toBe(3);
+
+			await assertCleanedUp();
+
+			await db.close();
 		});
 	});
 });

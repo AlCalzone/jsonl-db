@@ -87,6 +87,8 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
+		this.backupFilename = this.filename + ".bak";
+
 		this.options = options;
 		// Bind all map properties we can use directly
 		this.forEach = this._db.forEach.bind(this._db);
@@ -135,6 +137,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	public readonly filename: string;
 	public readonly dumpFilename: string;
+	public readonly backupFilename: string;
 
 	private options: JsonlDBOptions<V>;
 
@@ -200,6 +203,10 @@ export class JsonlDB<V extends unknown = unknown> {
 		} catch (e) {
 			throw new Error(`Failed to lock DB file "${this.filename}"!`);
 		}
+
+		// If the application crashed previously, try to recover from it
+		await this.tryRecoverDBFiles();
+
 		this._fd = await fs.open(this.filename, "a+");
 		const readStream = fs.createReadStream(this.filename, {
 			encoding: "utf8",
@@ -289,6 +296,78 @@ export class JsonlDB<V extends unknown = unknown> {
 					void this.compress();
 				}
 			}, intervalMs);
+		}
+	}
+
+	/**
+	 * Makes sure that there are no remains of a previous broken compress attempt and restores
+	 * a DB backup if it exists.
+	 */
+	private async tryRecoverDBFiles(): Promise<void> {
+		// During the compression, the following sequence of events happens:
+		// 1. A .jsonl.dump file gets written with a compressed copy of the data
+		// 2. Files get renamed: .jsonl -> .jsonl.bak, .jsonl.dump -> .jsonl
+		// 3. .bak file gets removed
+		// 4. Buffered data gets written to the .jsonl file
+
+		// This means if the .jsonl file is absent or truncated, we should be able to pick either the .dump or the .bak file
+		// and restore the .jsonl file from it
+		let dbFileIsOK = false;
+		try {
+			const dbFileStats = await fs.stat(this.filename);
+			dbFileIsOK = dbFileStats.isFile() && dbFileStats.size > 0;
+		} catch {
+			// ignore
+		}
+
+		// Prefer the DB file if it exists, remove the others in case they exist
+		if (dbFileIsOK) {
+			await fs.remove(this.backupFilename).catch(() => {
+				// ignore errors
+			});
+			await fs.remove(this.dumpFilename).catch(() => {
+				// ignore errors
+			});
+			return;
+		}
+
+		// The backup file should have complete data - the dump file could be subject to an incomplete write
+		let bakFileIsOK = false;
+		try {
+			const bakFileStats = await fs.stat(this.backupFilename);
+			bakFileIsOK = bakFileStats.isFile() && bakFileStats.size > 0;
+		} catch {
+			// ignore
+		}
+
+		if (bakFileIsOK) {
+			// Overwrite the broken db file with it and delete the dump file
+			await fs.move(this.backupFilename, this.filename, {
+				overwrite: true,
+			});
+			await fs.remove(this.dumpFilename).catch(() => {
+				// ignore errors
+			});
+			return;
+		}
+
+		// Try the dump file as a last attempt
+		let dumpFileIsOK = false;
+		try {
+			const dumpFileStats = await fs.stat(this.dumpFilename);
+			dumpFileIsOK = dumpFileStats.isFile() && dumpFileStats.size > 0;
+		} catch {
+			// ignore
+		}
+		if (dumpFileIsOK) {
+			// Overwrite the broken db file with the dump file and delete the backup file
+			await fs.move(this.dumpFilename, this.filename, {
+				overwrite: true,
+			});
+			await fs.remove(this.backupFilename).catch(() => {
+				// ignore errors
+			});
+			return;
 		}
 	}
 
@@ -592,11 +671,11 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 
 		// Replace the aof file
-		await fs.move(this.filename, this.filename + ".bak", {
+		await fs.move(this.filename, this.backupFilename, {
 			overwrite: true,
 		});
 		await fs.move(this.dumpFilename, this.filename, { overwrite: true });
-		await fs.unlink(this.filename + ".bak");
+		await fs.unlink(this.backupFilename);
 
 		if (this._isOpen) {
 			// Start the write thread again
