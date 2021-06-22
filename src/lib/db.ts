@@ -81,6 +81,19 @@ export interface FsWriteOptions {
 	EOL?: string;
 }
 
+/**
+ * fsync on a directory ensures there are no rename operations etc. which haven't been persisted to disk.
+ */
+export async function fsyncDir(dirname: string): Promise<void> {
+	// Windows will cause `EPERM: operation not permitted, fsync`
+	// for directories, so don't do this
+	if (process.platform === "win32") return;
+
+	const fd = await fs.open(dirname, "r");
+	await fs.fsync(fd);
+	await fs.close(fd);
+}
+
 export class JsonlDB<V extends unknown = unknown> {
 	public constructor(filename: string, options: JsonlDBOptions<V> = {}) {
 		this.validateOptions(options);
@@ -610,6 +623,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		// The dump backlog was closed, this means that the dump is finished.
 		// Close the file and resolve the close promise
+		await fs.fsync(this._dumpFd); // The dump should be on disk ASAP, so we fsync
 		await fs.close(this._dumpFd);
 
 		this._dumpFd = undefined;
@@ -643,7 +657,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 		this._writeBacklog.destroy();
 		// The write backlog was closed, this means that the DB is being closed
-		// close the file and resolve the close promise
+		// Flush the file contents to disk, close the file and resolve the close promise
+		await fs.fsync(this._fd);
 		await fs.close(this._fd);
 		this._writePromise.resolve();
 	}
@@ -664,17 +679,26 @@ export class JsonlDB<V extends unknown = unknown> {
 		this._compressBacklog = new stream.PassThrough({ objectMode: true });
 		this.uncork();
 
+		// Replace the aof file. To make sure that the data fully reaches the storage, we employ the following strategy:
+
+		// 1. Ensure there are no pending rename operations or file creations
+		await fsyncDir(path.dirname(this.filename));
+
+		// 2. Ensure the db file is fully written to disk. The write thread will fsync before closing
 		if (this._writeBacklog) {
 			this._writeBacklog.end();
 			await this._writePromise;
 			this._writeBacklog = undefined;
 		}
 
-		// Replace the aof file
+		// 3. Create backup, rename the dump file, then ensure the directory entries are written to disk
 		await fs.move(this.filename, this.backupFilename, {
 			overwrite: true,
 		});
 		await fs.move(this.dumpFilename, this.filename, { overwrite: true });
+		await fsyncDir(path.dirname(this.filename));
+
+		// 4. Delete backup
 		await fs.unlink(this.backupFilename);
 
 		if (this._isOpen) {
