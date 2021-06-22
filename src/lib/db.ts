@@ -84,7 +84,7 @@ export interface FsWriteOptions {
 /**
  * fsync on a directory ensures there are no rename operations etc. which haven't been persisted to disk.
  */
-export async function fsyncDir(dirname: string): Promise<void> {
+async function fsyncDir(dirname: string): Promise<void> {
 	// Windows will cause `EPERM: operation not permitted, fsync`
 	// for directories, so don't do this
 

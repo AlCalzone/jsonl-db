@@ -1,34 +1,28 @@
 {
+	"extends": "@tsconfig/node12/tsconfig.json",
 	"compilerOptions": {
+		// What to output
 		"noEmit": true,
-		"declaration": false,
-		"module": "commonjs",
-		"moduleResolution": "node",
-		"noEmitOnError": true,
-		"strict": true,
-		"outDir": "build/",
 		"removeComments": false,
-		"importsNotUsedAsValues": "error",
+		"stripInternal": true,
+		"declaration": false,
+		"outDir": "build/",
 		"sourceMap": true,
 		"inlineSourceMap": false,
-		"stripInternal": true,
-		"target": "es2017",
-		"watch": false, // true breaks circleci
+		// What to do with errors
+		"importsNotUsedAsValues": "error",
+		"noEmitOnError": true,
+		// Misc options
 		"pretty": true,
 		"types": [
 			"node",
 			"jest",
 			"jest-extended"
 		],
-		"allowSyntheticDefaultImports": true,
-		/* Advanced Options */
-		"forceConsistentCasingInFileNames": true /* Disallow inconsistently-cased references to the same file. */
 	},
 	"include": [
 		"src/**/*.ts",
-		"maintenance/**/*.ts",
-		"test/**/*.ts",
-		"gulpfile.ts"
+		"test/**/*.ts"
 	],
 	"exclude": [
 		"build/**",
