@@ -41,7 +41,7 @@
     "@commitlint/cli": "^12.1.4",
     "@commitlint/config-conventional": "^12.1.4",
     "@tsconfig/node12": "^1.0.9",
-    "@types/fs-extra": "^9.0.11",
+    "@types/fs-extra": "^9.0.12",
     "@types/jest": "^26.0.24",
     "@types/mock-fs": "^4.13.0",
     "@types/node": "^15.12.5",
