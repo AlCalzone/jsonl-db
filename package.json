@@ -42,7 +42,7 @@
     "@commitlint/config-conventional": "^12.1.4",
     "@tsconfig/node12": "^1.0.9",
     "@types/fs-extra": "^9.0.11",
-    "@types/jest": "^26.0.23",
+    "@types/jest": "^26.0.24",
     "@types/mock-fs": "^4.13.0",
     "@types/node": "^15.12.5",
     "@types/proper-lockfile": "^4.1.1",
