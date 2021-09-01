@@ -35,7 +35,7 @@
   "devDependencies": {
     "@alcalzone/release-script": "^2.2.1",
     "@babel/cli": "^7.14.8",
-    "@babel/core": "^7.14.8",
+    "@babel/core": "^7.15.0",
     "@babel/preset-env": "^7.15.0",
     "@babel/preset-typescript": "^7.15.0",
     "@commitlint/cli": "^13.1.0",
