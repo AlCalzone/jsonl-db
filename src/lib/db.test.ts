@@ -182,6 +182,20 @@ describe("lib/db", () => {
 			await db.close();
 		});
 
+		it("also creates leading directories for the lockfiles if they don't exist", async () => {
+			const lockfileDirectory = path.join(
+				testFSRoot,
+				"this/path/does/not/exist/either",
+			);
+			const db = new JsonlDB(path.join(testFSRoot, "lockfile"), {
+				lockfileDirectory,
+			});
+			await db.open();
+			await db.close();
+
+			await expect(fs.pathExists(lockfileDirectory)).resolves.toBeTrue();
+		});
+
 		it("reads the file if it exists", async () => {
 			const db = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db.open();
@@ -196,7 +210,7 @@ describe("lib/db", () => {
 			try {
 				await db2.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/Failed to lock/i);
 			}
 
@@ -240,7 +254,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 2");
 			}
@@ -251,7 +265,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 2");
 			}
@@ -262,7 +276,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 1");
 			}
