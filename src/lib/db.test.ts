@@ -196,7 +196,7 @@ describe("lib/db", () => {
 			try {
 				await db2.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/Failed to lock/i);
 			}
 
@@ -240,7 +240,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 2");
 			}
@@ -251,7 +251,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 2");
 			}
@@ -262,7 +262,7 @@ describe("lib/db", () => {
 			try {
 				await db.open();
 				throw new Error("it did not throw");
-			} catch (e) {
+			} catch (e: any) {
 				expect(e.message).toMatch(/invalid data/i);
 				expect(e.message).toMatch("line 1");
 			}

@@ -67,6 +67,12 @@ export interface JsonlDBOptions<V> {
 		 */
 		maxBufferedCommands?: number;
 	};
+
+	/**
+	 * Override in which directory the lockfile is created.
+	 * Defaults to the directory in which the DB file is located.
+	 */
+	lockfileDirectory?: string;
 }
 
 /** This is the same as `fs-extra`'s WriteOptions */
@@ -102,6 +108,9 @@ export class JsonlDB<V extends unknown = unknown> {
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
 		this.backupFilename = this.filename + ".bak";
+		this.lockfileName = options.lockfileDirectory
+			? path.join(options.lockfileDirectory, path.basename(this.filename))
+			: this.filename;
 
 		this.options = options;
 		// Bind all map properties we can use directly
@@ -152,6 +161,7 @@ export class JsonlDB<V extends unknown = unknown> {
 	public readonly filename: string;
 	public readonly dumpFilename: string;
 	public readonly backupFilename: string;
+	private readonly lockfileName: string;
 
 	private options: JsonlDBOptions<V>;
 
@@ -200,7 +210,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		await fs.ensureDir(path.dirname(this.filename));
 
 		try {
-			await lockfile.lock(this.filename, {
+			await fs.ensureDir(path.dirname(this.lockfileName));
+			await lockfile.lock(this.lockfileName, {
 				// We cannot be sure that the file exists before acquiring the lock
 				realpath: false,
 
@@ -215,7 +226,7 @@ export class JsonlDB<V extends unknown = unknown> {
 				},
 			});
 		} catch (e) {
-			throw new Error(`Failed to lock DB file "${this.filename}"!`);
+			throw new Error(`Failed to lock DB file "${this.lockfileName}"!`);
 		}
 
 		// If the application crashed previously, try to recover from it
@@ -784,8 +795,8 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		// Free the lock
 		try {
-			if (await lockfile.check(this.filename, { realpath: false }))
-				await lockfile.unlock(this.filename, { realpath: false });
+			if (await lockfile.check(this.lockfileName, { realpath: false }))
+				await lockfile.unlock(this.lockfileName, { realpath: false });
 		} catch {
 			// whatever - just don't crash
 		}

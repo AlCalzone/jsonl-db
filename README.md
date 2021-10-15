@@ -82,6 +82,14 @@ The following options exist:
 
 To create a compressed copy of the database in `/path/to/file.dump`, use the `dump()` method. If any data is written to the db during the dump, it is appended to the dump but most likely compressed.
 
+### Changing where the lockfile is created
+
+Normally, the lockfile to avoid concurrent access to the DB file is created right next to the DB file. You can change this, e.g. to put the lockfile into a `tmpfs`:
+```ts
+const db = new DB("/path/to/file", { lockfileDirectory: "/var/tmp" });
+```
+If the directory does not exist, it will be created when opening the DB.
+
 ### Copying and compressing the database
 
 ```ts
@@ -133,6 +141,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* Add the ability to specify where the lockfile is created
+
 ### 2.1.0 (2021-06-22)
 * When opening the DB, recover from crashes that happened while compressing the DB
 * Ensure that the DB files are flushed to disk when closing or renaming files
