@@ -141,7 +141,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.2.0 (2021-10-15)
 * Add the ability to specify where the lockfile is created
 
 ### 2.1.0 (2021-06-22)
