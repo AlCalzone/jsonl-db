@@ -60,7 +60,7 @@
     "prettier": "^2.4.1",
     "source-map-support": "^0.5.20",
     "ts-node": "^10.2.1",
-    "typescript": "^4.4.2"
+    "typescript": "^4.4.4"
   },
   "dependencies": {
     "alcalzone-shared": "^4.0.0",
