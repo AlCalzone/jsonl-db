@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/AlCalzone/jsonl-db#readme",
   "devDependencies": {
-    "@alcalzone/release-script": "~3.4.1",
+    "@alcalzone/release-script": "~3.4.2",
     "@alcalzone/release-script-plugin-license": "~3.4.1",
     "@babel/cli": "^7.16.0",
     "@babel/core": "^7.16.0",
