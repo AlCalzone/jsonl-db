@@ -93,7 +93,8 @@ If the directory does not exist, it will be created when opening the DB.
 ### Copying and compressing the database
 
 ```ts
-await db.dump();
+await db.dump(); // To use the default dump filename `/path/to/file.dump`
+await db.dump("/somewhere/else.jsonl"); // To use a different filename
 ```
 
 After a while, the main db file may contain unnecessary entries. The raw number of entries can be read using the `uncompressedSize` property. To remove unnecessary entries, use the `compress()` method.
@@ -141,6 +142,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* Add the ability to dump the database to a different location
+
 ### 2.2.0 (2021-10-15)
 * Add the ability to specify where the lockfile is created
 

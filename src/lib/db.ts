@@ -616,11 +616,16 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 	}
 
-	/** Saves a compressed copy of the DB into `<filename>.dump` */
-	public async dump(): Promise<void> {
+	/**
+	 * Saves a compressed copy of the DB into the given path.
+	 * @param targetFilename Where the compressed copy should be written. Default: `<filename>.dump`
+	 */
+	public async dump(
+		targetFilename: string = this.dumpFilename,
+	): Promise<void> {
 		this._dumpPromise = createDeferredPromise();
 		// Open the file for writing (or truncate if it exists)
-		this._dumpFd = await fs.open(this.dumpFilename, "w+");
+		this._dumpFd = await fs.open(targetFilename, "w+");
 		// And start dumping the DB
 		// Start by creating a dump backlog, so parallel writes will be remembered
 		this._dumpBacklog = new stream.PassThrough({ objectMode: true });
@@ -685,9 +690,12 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	private compressPromise: DeferredPromise<void> | undefined;
 	private async compressInternal(): Promise<void> {
-		if (this.compressPromise) return;
-
+		if (this.compressPromise) return this.compressPromise;
 		this.compressPromise = createDeferredPromise();
+
+		// If someone else is currently dumping the DB, wait for them to finish
+		if (this._dumpPromise) await this._dumpPromise;
+
 		// Immediately remember the database size or writes while compressing
 		// will be incorrectly reflected
 		this._uncompressedSize = this.size;
