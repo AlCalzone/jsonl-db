@@ -142,7 +142,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.3.0 (2021-12-19)
 * Add the ability to dump the database to a different location
 
 ### 2.2.0 (2021-10-15)
