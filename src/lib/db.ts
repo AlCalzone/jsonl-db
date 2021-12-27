@@ -87,6 +87,29 @@ export interface FsWriteOptions {
 	EOL?: string;
 }
 
+enum Operation {
+	Clear = 0,
+	Write = 1,
+	Delete = 2,
+}
+
+type LazyEntry<V extends unknown = unknown> = (
+	| {
+			op: Operation.Clear;
+	  }
+	| {
+			op: Operation.Delete;
+			key: string;
+	  }
+	| {
+			op: Operation.Write;
+			key: string;
+			value: V;
+	  }
+) & {
+	serialize(): string;
+};
+
 /**
  * fsync on a directory ensures there are no rename operations etc. which haven't been persisted to disk.
  */
@@ -443,7 +466,7 @@ export class JsonlDB<V extends unknown = unknown> {
 			throw new Error("The database is not open!");
 		}
 		this._db.clear();
-		this.write("");
+		this.write(this.makeLazyClear());
 	}
 	public delete(key: string): boolean {
 		if (!this._isOpen) {
@@ -452,7 +475,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		const ret = this._db.delete(key);
 		if (ret) {
 			// Something was deleted
-			this.write(this.entryToLine(key));
+			this.write(this.makeLazyDelete(key));
 		}
 		return ret;
 	}
@@ -461,7 +484,7 @@ export class JsonlDB<V extends unknown = unknown> {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
-		this.write(this.entryToLine(key, value));
+		this.write(this.makeLazyWrite(key, value));
 		return this;
 	}
 
@@ -488,7 +511,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		for (const [key, value] of Object.entries(jsonOrFile)) {
 			this._db.set(key, value);
-			this.write(this.entryToLine(key, value), true);
+			this.write(this.makeLazyWrite(key, value), true);
 		}
 	}
 
@@ -502,8 +525,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		return fs.writeJSON(filename, composeObject([...this._db]), options);
 	}
 
-	private updateStatistics(command: string): void {
-		if (command === "") {
+	private updateStatistics(entry: LazyEntry<V>): void {
+		if (entry.op === Operation.Clear) {
 			this._uncompressedSize = 0;
 		} else {
 			this._uncompressedSize++;
@@ -570,20 +593,20 @@ export class JsonlDB<V extends unknown = unknown> {
 	 * Writes a line into the correct backlog
 	 * @param noAutoCompress Whether auto-compression should be disabled
 	 */
-	private write(line: string, noAutoCompress: boolean = false): void {
+	private write(lazy: LazyEntry<V>, noAutoCompress: boolean = false): void {
 		/* istanbul ignore else */
 		if (this._compressBacklog && !this._compressBacklog.destroyed) {
 			// The compress backlog handling also handles the file statistics
-			this._compressBacklog.write(line);
+			this._compressBacklog.write(lazy);
 		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
 			// Update line statistics
-			this.updateStatistics(line);
+			this.updateStatistics(lazy);
 
 			// Either compress or write to the main file, never both
 			if (!noAutoCompress && this.needToCompress()) {
 				this.compress();
 			} else {
-				this._writeBacklog.write(line);
+				this._writeBacklog.write(lazy);
 				// If this is a throttled stream, uncork it as soon as the write
 				// buffer is larger than configured
 				if (
@@ -601,7 +624,7 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 		// If necessary, write to the dump backlog, so the dump doesn't miss any data
 		if (this._dumpBacklog && !this._dumpBacklog.destroyed) {
-			this._dumpBacklog.write(line);
+			this._dumpBacklog.write(lazy);
 		}
 	}
 
@@ -614,6 +637,48 @@ export class JsonlDB<V extends unknown = unknown> {
 		} else {
 			return JSON.stringify({ k: key });
 		}
+	}
+
+	private makeLazyClear(): LazyEntry & { op: Operation.Clear } {
+		return {
+			op: Operation.Clear,
+
+			serialize:
+				/* istanbul ignore next - this is impossible to test since it requires exact timing */ () =>
+					"",
+		};
+	}
+
+	private makeLazyDelete(key: string): LazyEntry & { op: Operation.Delete } {
+		let serialized: string | undefined;
+		return {
+			op: Operation.Delete,
+			key,
+			serialize: () => {
+				if (serialized == undefined) {
+					serialized = this.entryToLine(key);
+				}
+				return serialized;
+			},
+		};
+	}
+
+	private makeLazyWrite(
+		key: string,
+		value: V,
+	): LazyEntry<V> & { op: Operation.Write } {
+		let serialized: string | undefined;
+		return {
+			op: Operation.Write,
+			key,
+			value,
+			serialize: () => {
+				if (serialized == undefined) {
+					serialized = this.entryToLine(key, value);
+				}
+				return serialized;
+			},
+		};
 	}
 
 	/**
@@ -635,13 +700,14 @@ export class JsonlDB<V extends unknown = unknown> {
 		for (const [key, value] of entries) {
 			await fs.appendFile(
 				this._dumpFd,
+				// No need to serialize lazily here
 				this.entryToLine(key, value) + "\n",
 			);
 		}
 		// In case there is any data in the backlog stream, persist that too
-		let line: string;
-		while (null !== (line = this._dumpBacklog.read())) {
-			await fs.appendFile(this._dumpFd, line + "\n");
+		let lazy: LazyEntry<V>;
+		while (null !== (lazy = this._dumpBacklog.read())) {
+			await fs.appendFile(this._dumpFd, lazy.serialize() + "\n");
 		}
 		this._dumpBacklog.destroy();
 		this._dumpBacklog = undefined;
@@ -665,16 +731,35 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
+		// The chunk map is used to buffer all entries that are currently waiting in line
+		// so we avoid serializing redundant entries. When the write backlog is throttled,
+		// the chunk map will only be used for a short time.
+		const chunk = new Map<string, LazyEntry>();
 		for await (const action of this
-			._writeBacklog as AsyncIterable<string>) {
-			if (action === "") {
-				// Since we opened the file in append mode, we cannot truncate
-				// therefore close and open in write mode again
-				await fs.close(this._fd);
-				this._fd = await fs.open(this.filename, "w+");
+			._writeBacklog as AsyncIterable<LazyEntry>) {
+			if (action.op === Operation.Clear) {
+				chunk.clear();
+				chunk.set("", action);
 			} else {
-				await fs.appendFile(this._fd, action + "\n");
+				// Only remember the last entry for each key
+				chunk.set(action.key, action);
 			}
+
+			// When the backlog has been drained, perform the necessary write actions
+			if (this._writeBacklog.readableLength === 0) {
+				for (const entry of chunk.values()) {
+					if (entry.op === Operation.Clear) {
+						// Since we opened the file in append mode, we cannot truncate
+						// therefore close and open in write mode again
+						await fs.close(this._fd);
+						this._fd = await fs.open(this.filename, "w+");
+					} else {
+						await fs.appendFile(this._fd, entry.serialize() + "\n");
+					}
+				}
+				chunk.clear();
+			}
+
 			// When this is a throttled stream, auto-cork it when it was drained
 			if (this._writeBacklog.readableLength === 0 && this._isOpen) {
 				this.autoCork();
@@ -737,10 +822,10 @@ export class JsonlDB<V extends unknown = unknown> {
 		}
 
 		// In case there is any data in the backlog stream, persist that too
-		let line: string;
-		while (null !== (line = this._compressBacklog.read())) {
-			this.updateStatistics(line);
-			this._writeBacklog!.write(line);
+		let lazy: LazyEntry<V>;
+		while (null !== (lazy = this._compressBacklog.read())) {
+			this.updateStatistics(lazy);
+			this._writeBacklog!.write(lazy);
 		}
 		this._compressBacklog.destroy();
 		this._compressBacklog = undefined;

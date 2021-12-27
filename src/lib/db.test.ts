@@ -767,10 +767,11 @@ describe("lib/db", () => {
 
 		it("does not do anything while the DB is being closed", async () => {
 			db.set("key3", 3);
+			await db.compress(); // this writes the DB
 			db.delete("key2");
 			db.set("key3", 3.5);
-			const closePromise = db.close();
-			await db.compress();
+			const closePromise = db.close(); // this only appends the extra key3 line
+			await db.compress(); // this does not compress
 			await closePromise;
 
 			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
