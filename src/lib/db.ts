@@ -642,7 +642,10 @@ export class JsonlDB<V extends unknown = unknown> {
 	private makeLazyClear(): LazyEntry & { op: Operation.Clear } {
 		return {
 			op: Operation.Clear,
-			serialize: () => "",
+
+			serialize:
+				/* istanbul ignore next - this is impossible to test since it requires exact timing */ () =>
+					"",
 		};
 	}
 
