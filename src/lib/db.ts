@@ -697,18 +697,20 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Create a copy of the other entries in the DB
 		const entries = [...this._db];
 		// And persist them
+		let serialized = "";
 		for (const [key, value] of entries) {
-			await fs.appendFile(
-				this._dumpFd,
-				// No need to serialize lazily here
-				this.entryToLine(key, value) + "\n",
-			);
+			// No need to serialize lazily here
+			serialized += this.entryToLine(key, value) + "\n";
 		}
+		await fs.appendFile(this._dumpFd, serialized);
+
 		// In case there is any data in the backlog stream, persist that too
 		let lazy: LazyEntry<V>;
+		serialized = "";
 		while (null !== (lazy = this._dumpBacklog.read())) {
-			await fs.appendFile(this._dumpFd, lazy.serialize() + "\n");
+			serialized += lazy.serialize() + "\n";
 		}
+		await fs.appendFile(this._dumpFd, serialized);
 		this._dumpBacklog.destroy();
 		this._dumpBacklog = undefined;
 
@@ -735,11 +737,13 @@ export class JsonlDB<V extends unknown = unknown> {
 		// so we avoid serializing redundant entries. When the write backlog is throttled,
 		// the chunk map will only be used for a short time.
 		const chunk = new Map<string, LazyEntry>();
+		let serialized = "";
+		let truncate = false;
 		for await (const action of this
 			._writeBacklog as AsyncIterable<LazyEntry>) {
 			if (action.op === Operation.Clear) {
 				chunk.clear();
-				chunk.set("", action);
+				truncate = true;
 			} else {
 				// Only remember the last entry for each key
 				chunk.set(action.key, action);
@@ -747,16 +751,22 @@ export class JsonlDB<V extends unknown = unknown> {
 
 			// When the backlog has been drained, perform the necessary write actions
 			if (this._writeBacklog.readableLength === 0) {
+				if (truncate) {
+					// Since we opened the file in append mode, we cannot truncate
+					// therefore close and open in write mode again
+					await fs.close(this._fd);
+					this._fd = await fs.open(this.filename, "w+");
+					truncate = false;
+				}
+				// Collect all changes
 				for (const entry of chunk.values()) {
-					if (entry.op === Operation.Clear) {
-						// Since we opened the file in append mode, we cannot truncate
-						// therefore close and open in write mode again
-						await fs.close(this._fd);
-						this._fd = await fs.open(this.filename, "w+");
-					} else {
-						await fs.appendFile(this._fd, entry.serialize() + "\n");
+					if (entry.op !== Operation.Clear) {
+						serialized += entry.serialize() + "\n";
 					}
 				}
+				// and write once
+				await fs.appendFile(this._fd, serialized);
+				serialized = "";
 				chunk.clear();
 			}
 
