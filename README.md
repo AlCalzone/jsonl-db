@@ -142,7 +142,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.4.1 (2021-12-30)
 * Individual writes are now collected in a string and written at once, increasing throughput for larger entries by ~10x.
 
 ### 2.4.0 (2021-12-27)
