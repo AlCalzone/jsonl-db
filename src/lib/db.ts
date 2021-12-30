@@ -883,8 +883,8 @@ export class JsonlDB<V extends unknown = unknown> {
 		if (this._dumpBacklog) {
 			// Disable writing into the dump backlog stream
 			this._dumpBacklog.end();
-			await this._dumpPromise;
 		}
+		if (this._dumpPromise) await this._dumpPromise;
 
 		// Reset all variables
 		this._writePromise = undefined;

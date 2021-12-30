@@ -668,7 +668,9 @@ describe("lib/db", () => {
 			// simulate a slow FS
 			mockAppendFileThrottle = 50;
 			let dumpPromise: Promise<void>;
-			for (let i = 1; i < 20; i++) {
+			// 10 entries are written before the dump
+			// Afterwards: write 11, 20ms pause, delete 11, 20ms pause, write 13, dump done
+			for (let i = 1; i <= 13; i++) {
 				if (i % 4 === 0) {
 					db.delete(`${i - 1}`);
 				} else {
@@ -698,7 +700,7 @@ describe("lib/db", () => {
 			// dump without waiting
 			db.dump();
 			// wait a bit, so the files are being opened
-			await wait(100);
+			await wait(20);
 			// and write something that will be put into the dump backlog
 			db.set("21", 21);
 
