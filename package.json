@@ -56,7 +56,7 @@
     "eslint-plugin-prettier": "^4.0.0",
     "husky": "^7.0.4",
     "jest": "^27.4.5",
-    "jest-extended": "^0.11.5",
+    "jest-extended": "^1.2.0",
     "prettier": "^2.5.0",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.4.0",
