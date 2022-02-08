@@ -394,15 +394,19 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		if (bakFileIsOK) {
 			// Overwrite the broken db file with it and delete the dump file
-			await fs.move(this.backupFilename, this.filename, {
-				overwrite: true,
-			});
 			try {
-				await fs.remove(this.dumpFilename);
+				await fs.move(this.backupFilename, this.filename, {
+					overwrite: true,
+				});
+				try {
+					await fs.remove(this.dumpFilename);
+				} catch {
+					// ignore
+				}
+				return;
 			} catch {
-				// ignore
+				// Moving failed, try the next possibility
 			}
-			return;
 		}
 
 		// Try the dump file as a last attempt
@@ -414,16 +418,20 @@ export class JsonlDB<V extends unknown = unknown> {
 			// ignore
 		}
 		if (dumpFileIsOK) {
-			// Overwrite the broken db file with the dump file and delete the backup file
-			await fs.move(this.dumpFilename, this.filename, {
-				overwrite: true,
-			});
 			try {
-				await fs.remove(this.backupFilename);
+				// Overwrite the broken db file with the dump file and delete the backup file
+				await fs.move(this.dumpFilename, this.filename, {
+					overwrite: true,
+				});
+				try {
+					await fs.remove(this.backupFilename);
+				} catch {
+					// ignore
+				}
+				return;
 			} catch {
-				// ignore
+				// Moving failed
 			}
-			return;
 		}
 	}
 
