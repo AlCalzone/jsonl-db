@@ -142,6 +142,11 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* Errors while automatically restoring the DB from a backup or dump are now caught
+* Simplified and decoupled the persistence code. Individual commands like `dump` and `compress` are now properly sequenced and should no longer conflict with each other.
+* Increased throughput for primitive entries by ~2x
+
 ### 2.4.1 (2021-12-30)
 * Individual writes are now collected in a string and written at once, increasing throughput for larger entries by ~10x.
 
