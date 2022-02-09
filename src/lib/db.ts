@@ -705,6 +705,9 @@ export class JsonlDB<V extends unknown = unknown> {
 			) {
 				// Need to compress
 				task = { type: "compress", done: createDeferredPromise() };
+				// but catch errors!
+				// eslint-disable-next-line @typescript-eslint/no-empty-function
+				task.done.catch(() => {});
 			} else {
 				// Take the first tasks of from the task queue
 				task = this._persistenceTasks.shift() ?? { type: "none" };
