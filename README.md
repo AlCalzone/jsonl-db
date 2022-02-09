@@ -142,6 +142,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* Errors while automatically compressing the DB are now caught
+
 ### 2.4.2 (2022-02-09)
 * Errors while automatically restoring the DB from a backup or dump are now caught
 * Simplified and decoupled the persistence code. Individual commands like `dump` and `compress` are now properly sequenced and should no longer conflict with each other.
