@@ -137,6 +137,12 @@ async function fsyncDir(dirname: string): Promise<void> {
 	await fs.close(fd);
 }
 
+function getCurrentErrorStack(): string {
+	const tmp = { message: "" };
+	Error.captureStackTrace(tmp);
+	return (tmp as any).stack.split("\n").slice(2).join("\n");
+}
+
 export class JsonlDB<V extends unknown = unknown> {
 	public constructor(filename: string, options: JsonlDBOptions<V> = {}) {
 		this.validateOptions(options);
@@ -640,7 +646,13 @@ export class JsonlDB<V extends unknown = unknown> {
 			filename: targetFilename,
 			done,
 		});
-		return done;
+		const stack = getCurrentErrorStack();
+		try {
+			await done;
+		} catch (e: any) {
+			e.stack += "\n" + stack;
+			throw e;
+		}
 	}
 
 	private needToCompressBySize(): boolean {
@@ -864,7 +876,13 @@ export class JsonlDB<V extends unknown = unknown> {
 			type: "compress",
 			done,
 		});
-		return done;
+		const stack = getCurrentErrorStack();
+		try {
+			await done;
+		} catch (e: any) {
+			e.stack += "\n" + stack;
+			throw e;
+		}
 	}
 
 	/** Closes the DB and waits for all data to be written */
