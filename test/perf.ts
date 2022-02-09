@@ -1,8 +1,9 @@
+/* eslint-disable @typescript-eslint/no-inferrable-types */
 import { padStart } from "alcalzone-shared/strings";
 import fs from "fs-extra";
 import { JsonlDB } from "../src";
 
-process.on("unhandledRejection", (r) => {
+process.on("unhandledRejection", (_r) => {
 	debugger;
 });
 
@@ -64,8 +65,12 @@ async function testMedium() {
 	process.stdout.write("\n\n");
 
 	console.log(`${NUM_PASSES}x, ${NUM_OBJECTS} objects`);
-	console.log(`  ${(total / NUM_PASSES).toFixed(2)} ms / attempt`);
-	console.log(`  ${((NUM_OBJECTS / total) * 1000).toFixed(2)} changes/s`);
+	console.log(`  ${(total / NUM_PASSES).toFixed(2)} ms / pass`);
+	console.log(
+		`  ${(((NUM_OBJECTS * NUM_PASSES) / total) * 1000).toFixed(
+			2,
+		)} changes/s`,
+	);
 	console.log();
 	console.log();
 }
@@ -117,12 +122,17 @@ async function testSmall() {
 	process.stdout.write("\n\n");
 
 	console.log(`${NUM_PASSES}x, ${NUM_KEYS} keys, ${NUM_CHANGES} changes`);
-	console.log(`  ${(total / NUM_PASSES).toFixed(2)} ms / attempt`);
-	console.log(`  ${((NUM_CHANGES / total) * 1000).toFixed(2)} changes/s`);
+	console.log(`  ${(total / NUM_PASSES).toFixed(2)} ms / pass`);
+	console.log(
+		`  ${(((NUM_CHANGES * NUM_PASSES) / total) * 1000).toFixed(
+			2,
+		)} changes/s`,
+	);
 	console.log();
 	console.log();
 }
 
+debugger;
 testSmall()
 	.then(testMedium)
 	.catch(console.error)
