@@ -42,7 +42,6 @@ jest.mock("fs-extra", () => {
 		}),
 	};
 });
-
 function assertEqual<
 	T1 extends {
 		keys(): IterableIterator<string>;
@@ -108,6 +107,7 @@ describe("lib/db", () => {
 				).toThrowError("intervalMinChanges");
 			});
 		});
+
 		describe("validates throttleFS options", () => {
 			it("intervalMs < 0", () => {
 				expect(
@@ -141,24 +141,33 @@ describe("lib/db", () => {
 			testFS = new TestFS();
 			testFSRoot = await testFS.getRoot();
 
-			await testFS.create({
-				yes:
-					// Final newline omitted on purpose
-					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}',
-				emptyLines:
-					'\n{"k":"key1","v":1}\n\n\n{"k":"key2","v":"2"}\n\n',
-				broken: `{"k":"key1","v":1}\n{"k":,"v":1}\n`,
-				broken2: `{"k":"key1","v":1}\n{"k":"key2","v":}\n`,
-				broken3: `{"k":"key1"\n`,
-				reviver: `
+			try {
+				await testFS.remove();
+				await testFS.create({
+					yes:
+						// Final newline omitted on purpose
+						'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}',
+					emptyLines:
+						'\n{"k":"key1","v":1}\n\n\n{"k":"key2","v":"2"}\n\n',
+					broken: `{"k":"key1","v":1}\n{"k":,"v":1}\n`,
+					broken2: `{"k":"key1","v":1}\n{"k":"key2","v":}\n`,
+					broken3: `{"k":"key1"\n`,
+					reviver: `
 {"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"key1"}
 {"k":"key1","v":true}`,
-			});
+				});
+			} catch (e) {
+				debugger;
+			}
 		});
 		afterEach(async () => {
-			await testFS.remove();
+			try {
+				await testFS.remove();
+			} catch (e) {
+				debugger;
+			}
 		});
 
 		it("sets the isOpen property to true", async () => {
@@ -769,11 +778,11 @@ describe("lib/db", () => {
 
 		it("does not do anything while the DB is being closed", async () => {
 			db.set("key3", 3);
-			await db.compress(); // this writes the DB
+			await wait(30);
 			db.delete("key2");
 			db.set("key3", 3.5);
-			const closePromise = db.close(); // this only appends the extra key3 line
-			await db.compress(); // this does not compress
+			const closePromise = db.close();
+			await db.compress();
 			await closePromise;
 
 			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
@@ -872,8 +881,6 @@ describe("lib/db", () => {
 		afterEach(async () => {
 			await db.close();
 			await testFS.remove();
-			mockMoveFileThrottle = 0;
-			mockAppendFileThrottle = 0;
 		});
 
 		it("does not crash", async () => {
@@ -922,28 +929,36 @@ describe("lib/db", () => {
 			expect(db.uncompressedSize).toBe(7);
 		});
 
-		it("increases by 1 for each set command", async () => {
+		it("increases by 1 for each persisted set command", async () => {
 			db.set("key4", 1);
+			await wait(50);
 			expect(db.uncompressedSize).toBe(8);
 			db.set("key4", 1);
+			await wait(50);
 			expect(db.uncompressedSize).toBe(9);
 			db.set("key4", 1);
+			await wait(50);
 			expect(db.uncompressedSize).toBe(10);
 			db.set("key5", 2);
+			await wait(50);
 			expect(db.uncompressedSize).toBe(11);
 		});
 
-		it("increases by 1 for each non-noop delete", async () => {
+		it("increases by 1 for each persisted delete", async () => {
 			db.delete("key4");
+			await wait(50);
 			expect(db.uncompressedSize).toBe(7);
 			db.delete("key2");
+			await wait(50);
 			expect(db.uncompressedSize).toBe(8);
 			db.delete("key2");
+			await wait(50);
 			expect(db.uncompressedSize).toBe(8);
 		});
 
-		it("is reset to 0 after clear()", async () => {
+		it("is reset to 0 after clear() is persisted", async () => {
 			db.clear();
+			await wait(100);
 			expect(db.uncompressedSize).toBe(0);
 		});
 
@@ -968,12 +983,11 @@ describe("lib/db", () => {
 	describe("auto-compression", () => {
 		const testFilename = "autoCompress.jsonl";
 		let testFilenameFull: string;
-		const uncompressed = `
-{"k":"key1","v":1}
+		const uncompressed = `{"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"key3","v":3}
 {"k":"key2"}
-{"k":"key3","v":3.5}`;
+{"k":"key3","v":3.5}\n`;
 
 		let db: JsonlDB;
 		let testFS: TestFS;
@@ -984,7 +998,7 @@ describe("lib/db", () => {
 			testFSRoot = await testFS.getRoot();
 			testFilenameFull = path.join(testFSRoot, testFilename);
 			await testFS.create({
-				[testFilename]: `{"k":"key1","v":1}`,
+				[testFilename]: `{"k":"key1","v":1}\n`,
 				openClose: uncompressed,
 			});
 		});
@@ -999,43 +1013,58 @@ describe("lib/db", () => {
 					sizeFactor: 4,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 
-			for (let i = 2; i <= 9; i++) {
-				db.set("key1", i);
-				// compress is async, so give it some time
-				await wait(20);
-				if (i <= 3) {
-					expect(compressSpy).not.toBeCalled();
-				} else if (i <= 6) {
-					expect(compressSpy).toBeCalledTimes(1);
-				} else {
-					expect(compressSpy).toBeCalledTimes(2);
-				}
-			}
+			db.set("key1", 2);
+			await wait(25);
+			db.set("key1", 3);
+			await wait(25);
+
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":3}\n');
+
+			db.set("key1", 4);
+			// compress is async, so give it some time
+			await wait(100);
+
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
+				'{"k":"key1","v":4}\n',
+			);
 
 			await db.close();
 		});
 
 		it("..., but only above the minimum size", async () => {
+			jest.retryTimes(5);
+
 			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					sizeFactor: 4,
-					sizeFactorMinimumSize: 20,
+					sizeFactorMinimumSize: 6,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 
-			for (let i = 2; i <= 20; i++) {
+			for (let i = 2; i <= 5; i++) {
 				db.set("key1", i);
-				// compress is async, so give it some time
-				await wait(20);
+				await wait(75);
 			}
+
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":5}\n');
+
+			db.set("key1", 6);
+			// Wait a bit because compress is async
+			await wait(50);
+			// close the DB to make sure everything is flushed
 			await db.close();
-			expect(compressSpy).toBeCalledTimes(1);
-		});
+
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
+				'{"k":"key1","v":6}\n',
+			);
+		}, 10000);
 
 		it("doesn't trigger when different keys are added", async () => {
 			db = new JsonlDB(testFilenameFull, {
@@ -1061,16 +1090,22 @@ describe("lib/db", () => {
 					intervalMs: 100,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 
-			for (let i = 1; i <= 3; i++) {
-				// Don't test too often, or we'll run into a mismatch
-				db.set("key1", i);
-				// compress is async, so give it some time
-				await wait(110);
-				expect(compressSpy).toBeCalledTimes(i);
-			}
+			db.set("key1", 2);
+			await wait(25);
+			db.set("key1", 3);
+			await wait(25);
+
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":3}\n');
+
+			await wait(75);
+
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
+				'{"k":"key1","v":3}\n',
+			);
 
 			await db.close();
 		});
@@ -1082,19 +1117,19 @@ describe("lib/db", () => {
 					intervalMinChanges: 2,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
 			await db.open();
 
-			await wait(100);
-			expect(compressSpy).not.toBeCalled();
+			db.set("key1", 2);
+			await wait(110);
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":2}\n');
 
-			db.set("key1", 1);
-			await wait(100);
-			expect(compressSpy).not.toBeCalled(); // only 1 change
-
-			db.set("key1", 1);
-			await wait(100);
-			expect(compressSpy).toBeCalledTimes(1); // two changes
+			db.set("key1", 3);
+			await wait(110);
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
+				'{"k":"key1","v":3}\n',
+			);
 
 			await db.close();
 		});
@@ -1110,6 +1145,7 @@ describe("lib/db", () => {
 			// Cannot use this, since open calls compressInternal
 			// expect(compressSpy).toBeCalledTimes(1);
 			await db.open();
+			await wait(25);
 			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
@@ -1178,12 +1214,14 @@ describe("lib/db", () => {
 				},
 			});
 			await db.open();
+			db.clear();
 
 			// Trigger at least one scheduled cork before the first write
 			await wait(110);
 			await assertFileContent("");
 
 			db.set("1", 1);
+
 			let expected = `{"k":"1","v":1}\n`;
 			await assertFileContent("");
 
@@ -1222,7 +1260,7 @@ describe("lib/db", () => {
 			}
 
 			// Give it a little time to write
-			await wait(10);
+			await wait(40);
 			await assertFileContent(expected);
 		});
 
@@ -1236,12 +1274,13 @@ describe("lib/db", () => {
 			});
 			await db.open();
 			await db.compress();
+			await wait(15);
 
 			db.set("1", 1);
 			let expected = `{"k":"1","v":1}\n`;
 			await assertFileContent("");
 
-			await wait(50);
+			await wait(15);
 			for (let i = 2; i <= 100; i++) {
 				db.set(i.toString(), i);
 				await assertFileContent("");
@@ -1249,7 +1288,7 @@ describe("lib/db", () => {
 			}
 
 			// Give it a little more time than necessary
-			await wait(60);
+			await wait(100);
 			await assertFileContent(expected);
 		});
 

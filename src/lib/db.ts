@@ -1,3 +1,4 @@
+import { wait } from "alcalzone-shared/async";
 import {
 	createDeferredPromise,
 	DeferredPromise,
@@ -7,7 +8,6 @@ import * as fs from "fs-extra";
 import * as path from "path";
 import * as lockfile from "proper-lockfile";
 import * as readline from "readline";
-import * as stream from "stream";
 
 export interface JsonlDBOptions<V> {
 	/**
@@ -109,6 +109,19 @@ type LazyEntry<V extends unknown = unknown> = (
 ) & {
 	serialize(): string;
 };
+
+type PersistenceTask =
+	| { type: "stop" }
+	| { type: "none" }
+	| {
+			type: "dump";
+			filename: string;
+			done: DeferredPromise<void>;
+	  }
+	| {
+			type: "compress";
+			done: DeferredPromise<void>;
+	  };
 
 /**
  * fsync on a directory ensures there are no rename operations etc. which haven't been persisted to disk.
@@ -217,14 +230,27 @@ export class JsonlDB<V extends unknown = unknown> {
 	public get isOpen(): boolean {
 		return this._isOpen;
 	}
+
+	private _persistencePromise: Promise<void> | undefined;
+	private _persistenceTasks: PersistenceTask[] = [];
+	private _journal: LazyEntry<V>[] = [];
 	private _fd: number | undefined;
-	private _dumpFd: number | undefined;
-	private _compressBacklog: stream.PassThrough | undefined;
-	private _writeBacklog: stream.PassThrough | undefined;
-	private _writeCorkCount = 0;
-	private _writeCorkTimeout: NodeJS.Timeout | undefined;
-	private _dumpBacklog: stream.PassThrough | undefined;
-	private _compressInterval: NodeJS.Timeout | undefined;
+
+	private drainJournal(): LazyEntry<V>[] {
+		return this._journal.splice(0, this._journal.length);
+	}
+
+	// private filterJournal(predicate: (e: LazyEntry<V>) => boolean): void {
+	// 	let i = 0;
+	// 	while (i < this._journal.length) {
+	// 		const entry = this._journal[i];
+	// 		if (predicate(entry)) {
+	// 			i++;
+	// 		} else {
+	// 			this._journal.splice(i, 1);
+	// 		}
+	// 	}
+	// }
 
 	private _openPromise: DeferredPromise<void> | undefined;
 	// /** Opens the database file or creates it if it doesn't exist */
@@ -320,31 +346,13 @@ export class JsonlDB<V extends unknown = unknown> {
 			this._fd = undefined;
 		}
 
-		const {
-			onOpen,
-			intervalMs,
-			intervalMinChanges = 1,
-		} = this.options.autoCompress ?? {};
-
-		// If the DB should be compressed while opening, do it before starting the write thread
-		if (onOpen) {
-			await this.compressInternal();
-		}
-
-		// Start the write thread
-		this._openPromise = createDeferredPromise();
-		void this.writeThread();
+		// Start background persistence thread
+		this._persistencePromise = this.persistenceThread();
 		await this._openPromise;
 		this._isOpen = true;
 
-		// Start regular auto-compression
-		if (intervalMs) {
-			this._compressInterval = setInterval(() => {
-				if (this._changesSinceLastCompress >= intervalMinChanges) {
-					void this.compress();
-				}
-			}, intervalMs);
-		}
+		// If the DB should be compressed while opening, do it now
+		if (this.options.autoCompress?.onOpen) await this.compress();
 	}
 
 	/**
@@ -474,8 +482,11 @@ export class JsonlDB<V extends unknown = unknown> {
 			throw new Error("The database is not open!");
 		}
 		this._db.clear();
-		this.write(this.makeLazyClear());
+		// All pending writes are obsolete, remove them from the journal
+		this.drainJournal();
+		this._journal.push(this.makeLazyClear());
 	}
+
 	public delete(key: string): boolean {
 		if (!this._isOpen) {
 			throw new Error("The database is not open!");
@@ -483,16 +494,37 @@ export class JsonlDB<V extends unknown = unknown> {
 		const ret = this._db.delete(key);
 		if (ret) {
 			// Something was deleted
-			this.write(this.makeLazyDelete(key));
+			// // Deduplicate while inserting, removing all previous pending writes for this key
+			// this.filterJournal((e) => {
+			// 	if (e.op === Operation.Write && e.key === key) {
+			// 		return false;
+			// 	} else if (e.op === Operation.Delete && e.key === key) {
+			// 		return false;
+			// 	} else {
+			// 		return true;
+			// 	}
+			// });
+			this._journal.push(this.makeLazyDelete(key));
 		}
 		return ret;
 	}
+
 	public set(key: string, value: V): this {
 		if (!this._isOpen) {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
-		this.write(this.makeLazyWrite(key, value));
+		// // Deduplicate while inserting, removing all previous pending writes for this key
+		// this.filterJournal((e) => {
+		// 	if (e.op === Operation.Write && e.key === key) {
+		// 		return false;
+		// 	} else if (e.op === Operation.Delete && e.key === key) {
+		// 		return false;
+		// 	} else {
+		// 		return true;
+		// 	}
+		// });
+		this._journal.push(this.makeLazyWrite(key, value));
 		return this;
 	}
 
@@ -519,7 +551,7 @@ export class JsonlDB<V extends unknown = unknown> {
 
 		for (const [key, value] of Object.entries(jsonOrFile)) {
 			this._db.set(key, value);
-			this.write(this.makeLazyWrite(key, value), true);
+			this._journal.push(this.makeLazyWrite(key, value));
 		}
 	}
 
@@ -531,109 +563,6 @@ export class JsonlDB<V extends unknown = unknown> {
 			return Promise.reject(new Error("The database is not open!"));
 		}
 		return fs.writeJSON(filename, composeObject([...this._db]), options);
-	}
-
-	private updateStatistics(entry: LazyEntry<V>): void {
-		if (entry.op === Operation.Clear) {
-			this._uncompressedSize = 0;
-		} else {
-			this._uncompressedSize++;
-		}
-		this._changesSinceLastCompress++;
-	}
-
-	private needToCompress(): boolean {
-		// compression is busy?
-		if (this.compressPromise) return false;
-		const {
-			sizeFactor = Number.POSITIVE_INFINITY,
-			sizeFactorMinimumSize = 0,
-		} = this.options.autoCompress ?? {};
-		if (
-			this.uncompressedSize >= sizeFactorMinimumSize &&
-			this.uncompressedSize >= sizeFactor * this.size
-		) {
-			return true;
-		}
-		return false;
-	}
-
-	private cork(): void {
-		/* istanbul ignore else - this is impossible to test */
-		if (this._writeBacklog && this._writeCorkCount === 0) {
-			this._writeBacklog.cork();
-			this._writeCorkCount++;
-		}
-	}
-
-	private uncork(): void {
-		if (this._writeCorkCount > 0 && this._writeCorkTimeout) {
-			clearTimeout(this._writeCorkTimeout);
-			this._writeCorkTimeout = undefined;
-		}
-		while (this._writeBacklog && this._writeCorkCount > 0) {
-			this._writeBacklog.uncork();
-			this._writeCorkCount--;
-		}
-	}
-
-	private autoCork(): void {
-		if (!this.options.throttleFS?.intervalMs) return;
-
-		const maybeUncork = (): void => {
-			if (this._writeBacklog && this._writeBacklog.writableLength > 0) {
-				// This gets the stream flowing again. The write thread will call
-				// autoCork when it is done
-				this.uncork();
-			} else {
-				// Nothing to uncork, schedule the next timeout
-				this._writeCorkTimeout?.refresh();
-			}
-		};
-		// Cork once and schedule the uncork
-		this.cork();
-		this._writeCorkTimeout =
-			this._writeCorkTimeout?.refresh() ??
-			setTimeout(maybeUncork, this.options.throttleFS.intervalMs);
-	}
-
-	/**
-	 * Writes a line into the correct backlog
-	 * @param noAutoCompress Whether auto-compression should be disabled
-	 */
-	private write(lazy: LazyEntry<V>, noAutoCompress: boolean = false): void {
-		/* istanbul ignore else */
-		if (this._compressBacklog && !this._compressBacklog.destroyed) {
-			// The compress backlog handling also handles the file statistics
-			this._compressBacklog.write(lazy);
-		} else if (this._writeBacklog && !this._writeBacklog.destroyed) {
-			// Update line statistics
-			this.updateStatistics(lazy);
-
-			// Either compress or write to the main file, never both
-			if (!noAutoCompress && this.needToCompress()) {
-				this.compress();
-			} else {
-				this._writeBacklog.write(lazy);
-				// If this is a throttled stream, uncork it as soon as the write
-				// buffer is larger than configured
-				if (
-					this.options.throttleFS?.maxBufferedCommands != undefined &&
-					this._writeBacklog.writableLength >
-						this.options.throttleFS.maxBufferedCommands
-				) {
-					this.uncork();
-				}
-			}
-		} else {
-			throw new Error(
-				"Cannot write into the database while no streams are open!",
-			);
-		}
-		// If necessary, write to the dump backlog, so the dump doesn't miss any data
-		if (this._dumpBacklog && !this._dumpBacklog.destroyed) {
-			this._dumpBacklog.write(lazy);
-		}
 	}
 
 	private entryToLine(key: string, value?: V): string {
@@ -691,218 +620,298 @@ export class JsonlDB<V extends unknown = unknown> {
 
 	/**
 	 * Saves a compressed copy of the DB into the given path.
+	 *
+	 * **WARNING:** This MUST be called from {@link persistenceThread}!
 	 * @param targetFilename Where the compressed copy should be written. Default: `<filename>.dump`
+	 * @param drainJournal Whether the journal should be drained when writing the compressed copy or simply cloned.
 	 */
-	public async dump(
+	private async dumpInternal(
 		targetFilename: string = this.dumpFilename,
+		drainJournal: boolean,
 	): Promise<void> {
-		this._dumpPromise = createDeferredPromise();
 		// Open the file for writing (or truncate if it exists)
-		this._dumpFd = await fs.open(targetFilename, "w+");
-		// And start dumping the DB
-		// Start by creating a dump backlog, so parallel writes will be remembered
-		this._dumpBacklog = new stream.PassThrough({ objectMode: true });
+		const fd = await fs.open(targetFilename, "w+");
+
 		// Create a copy of the other entries in the DB
+		// Also, remember how many entries were in the journal. These are already part of
+		// the map, so we don't need to append them later and keep a consistent state
 		const entries = [...this._db];
+		const journalLength = this._journal.length;
+
 		// And persist them
 		let serialized = "";
 		for (const [key, value] of entries) {
 			// No need to serialize lazily here
 			serialized += this.entryToLine(key, value) + "\n";
 		}
-		await fs.appendFile(this._dumpFd, serialized);
+		await fs.appendFile(fd, serialized);
 
-		// In case there is any data in the backlog stream, persist that too
-		let lazy: LazyEntry<V>;
-		serialized = "";
-		while (null !== (lazy = this._dumpBacklog.read())) {
-			serialized += lazy.serialize() + "\n";
-		}
-		await fs.appendFile(this._dumpFd, serialized);
-		this._dumpBacklog.destroy();
-		this._dumpBacklog = undefined;
+		// In case there is any new data in the journal, persist that too
+		let journal = drainJournal
+			? this._journal.splice(0, this._journal.length)
+			: this._journal;
+		journal = journal.slice(journalLength);
+		await this.writeJournalToFile(fd, journal, false);
 
-		// The dump backlog was closed, this means that the dump is finished.
-		// Close the file and resolve the close promise
-		await fs.fsync(this._dumpFd); // The dump should be on disk ASAP, so we fsync
-		await fs.close(this._dumpFd);
-
-		this._dumpFd = undefined;
-		this._dumpPromise.resolve();
+		await fs.close(fd);
 	}
 
-	/** Asynchronously performs all write actions */
-	private async writeThread(): Promise<void> {
-		// This must be called before any awaits
-		this._writeBacklog = new stream.PassThrough({ objectMode: true });
-		this.autoCork();
+	/**
+	 * Saves a compressed copy of the DB into the given path.
+	 * @param targetFilename Where the compressed copy should be written. Default: `<filename>.dump`
+	 */
+	public dump(targetFilename: string = this.dumpFilename): Promise<void> {
+		const done = createDeferredPromise();
+		this._persistenceTasks.push({
+			type: "dump",
+			filename: targetFilename,
+			done,
+		});
+		return done;
+	}
 
-		this._writePromise = createDeferredPromise();
+	private needToCompressBySize(): boolean {
+		const {
+			sizeFactor = Number.POSITIVE_INFINITY,
+			sizeFactorMinimumSize = 0,
+		} = this.options.autoCompress ?? {};
+		if (
+			this._uncompressedSize >= sizeFactorMinimumSize &&
+			this._uncompressedSize >= sizeFactor * this.size
+		) {
+			return true;
+		}
+		return false;
+	}
+
+	private needToCompressByTime(lastCompress: number): boolean {
+		if (!this.options.autoCompress) return false;
+		const { intervalMs, intervalMinChanges = 1 } =
+			this.options.autoCompress;
+		if (!intervalMs) return false;
+
+		return (
+			this._changesSinceLastCompress >= intervalMinChanges &&
+			Date.now() - lastCompress >= intervalMs
+		);
+	}
+
+	private async persistenceThread(): Promise<void> {
+		// Keep track of the write accesses and compression attempts
+		let lastWrite = Date.now();
+		let lastCompress = Date.now();
+		const throttleInterval = this.options.throttleFS?.intervalMs ?? 0;
+		const maxBufferedCommands =
+			this.options.throttleFS?.maxBufferedCommands ??
+			Number.POSITIVE_INFINITY;
+
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
+
+		const sleepDuration = 20; // ms
+
+		while (true) {
+			// Figure out what to do
+			let task: PersistenceTask | undefined;
+			if (
+				this.needToCompressBySize() ||
+				this.needToCompressByTime(lastCompress)
+			) {
+				// Need to compress
+				task = { type: "compress", done: createDeferredPromise() };
+			} else {
+				// Take the first tasks of from the task queue
+				task = this._persistenceTasks.shift() ?? { type: "none" };
+			}
+
+			let isStopCmd = false;
+			switch (task.type) {
+				case "stop":
+					isStopCmd = true;
+				// fall through
+				case "none": {
+					// Write to disk if necessary
+
+					const shouldWrite =
+						this._journal.length > 0 &&
+						(isStopCmd ||
+							Date.now() - lastWrite > throttleInterval ||
+							this._journal.length > maxBufferedCommands);
+
+					if (shouldWrite) {
+						// Drain the journal
+						const journal = this.drainJournal();
+						this._fd = await this.writeJournalToFile(
+							this._fd,
+							journal,
+						);
+						lastWrite = Date.now();
+					}
+
+					if (isStopCmd) {
+						await fs.close(this._fd);
+						this._fd = undefined;
+						return;
+					}
+					break;
+				}
+
+				case "dump": {
+					try {
+						await this.dumpInternal(task.filename, false);
+						task.done.resolve();
+					} catch (e) {
+						task.done.reject(e);
+					}
+					break;
+				}
+
+				case "compress": {
+					try {
+						await this.doCompress();
+						lastCompress = Date.now();
+						task.done?.resolve();
+					} catch (e) {
+						task.done?.reject(e);
+					}
+					break;
+				}
+			}
+
+			await wait(sleepDuration);
+		}
+	}
+
+	/** Writes the given journal to the given file descriptor. Returns the new file descriptor if the file was re-opened during the process */
+	private async writeJournalToFile(
+		fd: number,
+		journal: LazyEntry<V>[],
+		updateStatistics: boolean = true,
+	): Promise<number> {
 		// The chunk map is used to buffer all entries that are currently waiting in line
-		// so we avoid serializing redundant entries. When the write backlog is throttled,
+		// so we avoid serializing redundant entries. When the writing is throttled,
 		// the chunk map will only be used for a short time.
 		const chunk = new Map<string, LazyEntry>();
 		let serialized = "";
 		let truncate = false;
-		for await (const action of this
-			._writeBacklog as AsyncIterable<LazyEntry>) {
-			if (action.op === Operation.Clear) {
+
+		for (const entry of journal) {
+			if (entry.op === Operation.Clear) {
 				chunk.clear();
 				truncate = true;
 			} else {
 				// Only remember the last entry for each key
-				chunk.set(action.key, action);
-			}
-
-			// When the backlog has been drained, perform the necessary write actions
-			if (this._writeBacklog.readableLength === 0) {
-				if (truncate) {
-					// Since we opened the file in append mode, we cannot truncate
-					// therefore close and open in write mode again
-					await fs.close(this._fd);
-					this._fd = await fs.open(this.filename, "w+");
-					truncate = false;
-				}
-				// Collect all changes
-				for (const entry of chunk.values()) {
-					if (entry.op !== Operation.Clear) {
-						serialized += entry.serialize() + "\n";
-					}
-				}
-				// and write once
-				await fs.appendFile(this._fd, serialized);
-				serialized = "";
-				chunk.clear();
-			}
-
-			// When this is a throttled stream, auto-cork it when it was drained
-			if (this._writeBacklog.readableLength === 0 && this._isOpen) {
-				this.autoCork();
+				chunk.set(entry.key, entry);
 			}
 		}
-		this._writeBacklog.destroy();
-		// The write backlog was closed, this means that the DB is being closed
-		// Flush the file contents to disk, close the file and resolve the close promise
-		await fs.fsync(this._fd);
-		await fs.close(this._fd);
-		this._writePromise.resolve();
+
+		// When the journal has been drained, perform the necessary write actions
+		if (truncate) {
+			// Since we opened the file in append mode, we cannot truncate
+			// therefore close and open in write mode again
+			await fs.close(fd);
+			fd = await fs.open(this.filename, "w+");
+			truncate = false;
+			if (updateStatistics) {
+				// Now the DB size is effectively 0 and we have no "uncompressed" changes pending
+				this._uncompressedSize = 0;
+				this._changesSinceLastCompress = 0;
+			}
+		}
+		// Collect all changes
+		for (const entry of chunk.values()) {
+			serialized += entry.serialize() + "\n";
+			if (updateStatistics) {
+				this._uncompressedSize++;
+				this._changesSinceLastCompress++;
+			}
+		}
+		// and write once, making sure everything is written
+		await fs.appendFile(fd, serialized);
+		await fs.fsync(fd);
+
+		return fd;
 	}
 
-	private compressPromise: DeferredPromise<void> | undefined;
-	private async compressInternal(): Promise<void> {
-		if (this.compressPromise) return this.compressPromise;
-		this.compressPromise = createDeferredPromise();
+	/**
+	 * Compresses the db by dumping it and overwriting the aof file.
+	 *
+	 * **WARNING:** This MUST be called from {@link persistenceThread}!
+	 */
+	private async doCompress(): Promise<void> {
+		// 1. Ensure the backup contains everything in the DB and journal
+		const journal = this.drainJournal();
+		this._fd = await this.writeJournalToFile(this._fd!, journal);
+		await fs.close(this._fd);
+		this._fd = undefined;
 
-		// If someone else is currently dumping the DB, wait for them to finish
-		if (this._dumpPromise) await this._dumpPromise;
+		// 2. Create a dump, draining the journal to avoid duplicate writes
+		await this.dumpInternal(this.dumpFilename, true);
 
-		// Immediately remember the database size or writes while compressing
-		// will be incorrectly reflected
-		this._uncompressedSize = this.size;
-		this._changesSinceLastCompress = 0;
-		await this.dump();
-		// After dumping, restart the write thread so no duplicate entries get written
-		// Disable writing into the backlog stream and buffer all writes
-		// in the compress backlog in the meantime
-		this._compressBacklog = new stream.PassThrough({ objectMode: true });
-		this.uncork();
-
-		// Replace the aof file. To make sure that the data fully reaches the storage, we employ the following strategy:
-
-		// 1. Ensure there are no pending rename operations or file creations
+		// 3. Ensure there are no pending rename operations or file creations
 		await fsyncDir(path.dirname(this.filename));
 
-		// 2. Ensure the db file is fully written to disk. The write thread will fsync before closing
-		if (this._writeBacklog) {
-			this._writeBacklog.end();
-			await this._writePromise;
-			this._writeBacklog = undefined;
-		}
-
-		// 3. Create backup, rename the dump file, then ensure the directory entries are written to disk
+		// 4. Swap files around, then ensure the directory entries are written to disk
 		await fs.move(this.filename, this.backupFilename, {
 			overwrite: true,
 		});
 		await fs.move(this.dumpFilename, this.filename, { overwrite: true });
 		await fsyncDir(path.dirname(this.filename));
 
-		// 4. Delete backup
+		// 5. Delete backup
 		await fs.unlink(this.backupFilename);
 
-		if (this._isOpen) {
-			// Start the write thread again
-			this._openPromise = createDeferredPromise();
-			void this.writeThread();
-			await this._openPromise;
-		}
+		// 6. open the main DB file again in append mode
+		this._fd = await fs.open(this.filename, "a+");
 
-		// In case there is any data in the backlog stream, persist that too
-		let lazy: LazyEntry<V>;
-		while (null !== (lazy = this._compressBacklog.read())) {
-			this.updateStatistics(lazy);
-			this._writeBacklog!.write(lazy);
-		}
-		this._compressBacklog.destroy();
-		this._compressBacklog = undefined;
-
-		// If any method is waiting for the compress process, signal it that we're done
-		this.compressPromise.resolve();
-		this.compressPromise = undefined;
+		// Remember the new statistics
+		this._uncompressedSize = this._db.size;
+		this._changesSinceLastCompress = 0;
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
 		if (!this._isOpen) return;
 
-		return this.compressInternal();
+		await this.compressInternal();
 	}
 
-	/** Resolves when the `writeThread()` is finished */
-	private _writePromise: DeferredPromise<void> | undefined;
-	/** Resolves when the `dump()` method is finished */
-	private _dumpPromise: DeferredPromise<void> | undefined;
+	/** Compresses the db by dumping it and overwriting the aof file. */
+	private async compressInternal(): Promise<void> {
+		// Avoid having multiple compress operations running in parallel
+		const task = this._persistenceTasks.find(
+			(t): t is PersistenceTask & { type: "compress" } =>
+				t.type === "compress",
+		);
+		if (task) return task.done;
+
+		const done = createDeferredPromise<void>();
+		this._persistenceTasks.push({
+			type: "compress",
+			done,
+		});
+		return done;
+	}
 
 	/** Closes the DB and waits for all data to be written */
 	public async close(): Promise<void> {
+		if (!this._isOpen) return;
 		this._isOpen = false;
-		if (this._compressInterval) clearInterval(this._compressInterval);
-		if (this._writeCorkTimeout) clearTimeout(this._writeCorkTimeout);
 
-		if (this.compressPromise) {
-			// Wait until any pending compress processes are complete
-			await this.compressPromise;
-		} else if (this.options.autoCompress?.onClose) {
-			// Compress if required
+		// Compress on close if required
+		if (this.options.autoCompress?.onClose) {
 			await this.compressInternal();
 		}
 
-		// Disable writing into the backlog stream and wait for the write process to finish
-		if (this._writeBacklog) {
-			this.uncork();
-			this._writeBacklog.end();
-			await this._writePromise;
-		}
-
-		// Also wait for a potential dump process to finish
-		/* istanbul ignore next - this is impossible to test since it requires exact timing */
-		if (this._dumpBacklog) {
-			// Disable writing into the dump backlog stream
-			this._dumpBacklog.end();
-		}
-		if (this._dumpPromise) await this._dumpPromise;
+		// Stop persistence thread and wait for it to finish
+		this._persistenceTasks.push({ type: "stop" });
+		await this._persistencePromise;
 
 		// Reset all variables
-		this._writePromise = undefined;
-		this._dumpPromise = undefined;
 		this._db.clear();
-		this._fd = undefined;
-		this._dumpFd = undefined;
 		this._changesSinceLastCompress = 0;
 		this._uncompressedSize = Number.NaN;
-		this._writeCorkCount = 0;
 
 		// Free the lock
 		try {
