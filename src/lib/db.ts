@@ -240,18 +240,6 @@ export class JsonlDB<V extends unknown = unknown> {
 		return this._journal.splice(0, this._journal.length);
 	}
 
-	// private filterJournal(predicate: (e: LazyEntry<V>) => boolean): void {
-	// 	let i = 0;
-	// 	while (i < this._journal.length) {
-	// 		const entry = this._journal[i];
-	// 		if (predicate(entry)) {
-	// 			i++;
-	// 		} else {
-	// 			this._journal.splice(i, 1);
-	// 		}
-	// 	}
-	// }
-
 	private _openPromise: DeferredPromise<void> | undefined;
 	// /** Opens the database file or creates it if it doesn't exist */
 	public async open(): Promise<void> {
@@ -494,16 +482,6 @@ export class JsonlDB<V extends unknown = unknown> {
 		const ret = this._db.delete(key);
 		if (ret) {
 			// Something was deleted
-			// // Deduplicate while inserting, removing all previous pending writes for this key
-			// this.filterJournal((e) => {
-			// 	if (e.op === Operation.Write && e.key === key) {
-			// 		return false;
-			// 	} else if (e.op === Operation.Delete && e.key === key) {
-			// 		return false;
-			// 	} else {
-			// 		return true;
-			// 	}
-			// });
 			this._journal.push(this.makeLazyDelete(key));
 		}
 		return ret;
@@ -514,16 +492,6 @@ export class JsonlDB<V extends unknown = unknown> {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
-		// // Deduplicate while inserting, removing all previous pending writes for this key
-		// this.filterJournal((e) => {
-		// 	if (e.op === Operation.Write && e.key === key) {
-		// 		return false;
-		// 	} else if (e.op === Operation.Delete && e.key === key) {
-		// 		return false;
-		// 	} else {
-		// 		return true;
-		// 	}
-		// });
 		this._journal.push(this.makeLazyWrite(key, value));
 		return this;
 	}
