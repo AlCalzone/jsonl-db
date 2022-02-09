@@ -1,6 +1,6 @@
 {
   "name": "@alcalzone/jsonl-db",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Simple JSONL-based key-value store",
   "main": "./build/index.js",
   "types": "./build/index.d.ts",
