@@ -628,7 +628,12 @@ export class JsonlDB<V extends unknown = unknown> {
 	 * Saves a compressed copy of the DB into the given path.
 	 * @param targetFilename Where the compressed copy should be written. Default: `<filename>.dump`
 	 */
-	public dump(targetFilename: string = this.dumpFilename): Promise<void> {
+	public async dump(
+		targetFilename: string = this.dumpFilename,
+	): Promise<void> {
+		// Prevent dumping the DB when it is closed
+		if (!this._isOpen) return;
+
 		const done = createDeferredPromise();
 		this._persistenceTasks.push({
 			type: "dump",
