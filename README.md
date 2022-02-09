@@ -142,7 +142,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.4.3 (2022-02-09)
 * Errors while automatically compressing the DB are now caught
 
 ### 2.4.2 (2022-02-09)
