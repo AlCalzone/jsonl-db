@@ -82,13 +82,20 @@ The following options exist:
 
 To create a compressed copy of the database in `/path/to/file.dump`, use the `dump()` method. If any data is written to the db during the dump, it is appended to the dump but most likely compressed.
 
-### Changing where the lockfile is created
+### Lockfile-related options
 
-Normally, the lockfile to avoid concurrent access to the DB file is created right next to the DB file. You can change this, e.g. to put the lockfile into a `tmpfs`:
+A lockfile is used to avoid concurrent access to the DB file. Multiple options exist to control where this lockfile is created and how it is accessed:
 ```ts
-const db = new DB("/path/to/file", { lockfileDirectory: "/var/tmp" });
+const db = new DB("/path/to/file", { lockfile: { /* lockfile options */ } });
 ```
-If the directory does not exist, it will be created when opening the DB.
+
+| Option | Default | Description |
+|-----------------|---------|-------------|
+| `directory` | - | Change where the lockfile is created, e.g. to put the lockfile into a `tmpfs`. By default the lockfile is created in the same directory as the DB file. If the directory does not exist, it will be created when opening the DB. |
+| `staleMs` | `10000` | Duration after which the lock is considered stale. Minimum: `5000` |
+| `updateMs` | `staleMs/2` | The interval in which the lockfile's `mtime` will be updated. Range: `1000 ... staleMs/2` |
+| `retries` | `0` | How often to retry acquiring a lock before giving up. The retries progressively wait longer with an exponential backoff strategy. |
+
 
 ### Copying and compressing the database
 

@@ -68,7 +68,28 @@ export interface JsonlDBOptions<V> {
 		maxBufferedCommands?: number;
 	};
 
+	/** Configure settings related to the lockfile */
+	lockfile?: Partial<{
+		/**
+		 * Override in which directory the lockfile is created.
+		 * Defaults to the directory in which the DB file is located.
+		 */
+		directory?: string;
+
+		/** Duration after which the lock is considered stale. Minimum: 5000, Default: 10000 */
+		staleMs?: number;
+		/** The interval in which the lockfile's `mtime` will be updated. Range: [1000...staleMs/2]. Default: staleMs/2  */
+		updateMs?: number;
+		/**
+		 * How often to retry acquiring a lock before giving up. The retries progressively wait longer with an exponential backoff strategy.
+		 * Range: [0...10]. Default: 0
+		 */
+		retries?: number;
+	}>;
+
 	/**
+	 * @deprecated Use lockfile.directory instead.
+	 *
 	 * Override in which directory the lockfile is created.
 	 * Defaults to the directory in which the DB file is located.
 	 */
@@ -150,8 +171,10 @@ export class JsonlDB<V extends unknown = unknown> {
 		this.filename = filename;
 		this.dumpFilename = this.filename + ".dump";
 		this.backupFilename = this.filename + ".bak";
-		this.lockfileName = options.lockfileDirectory
-			? path.join(options.lockfileDirectory, path.basename(this.filename))
+		const lockfileDirectory =
+			options.lockfile?.directory ?? options.lockfileDirectory;
+		this.lockfileName = lockfileDirectory
+			? path.join(lockfileDirectory, path.basename(this.filename))
 			: this.filename;
 
 		this.options = options;
@@ -196,6 +219,37 @@ export class JsonlDB<V extends unknown = unknown> {
 			}
 			if (maxBufferedCommands != undefined && maxBufferedCommands < 0) {
 				throw new Error("maxBufferedCommands must be >= 0");
+			}
+		}
+		if (options.lockfile) {
+			const {
+				directory,
+				retries,
+				staleMs = 10000,
+				updateMs = staleMs / 2,
+			} = options.lockfile;
+			if (staleMs < 5000) {
+				throw new Error("staleMs must be >= 5000");
+			}
+			if (updateMs < 1000) {
+				throw new Error("updateMs must be >= 1000");
+			}
+			if (updateMs > staleMs / 2) {
+				throw new Error(`updateMs must be <= ${staleMs / 2}`);
+			}
+			if (retries != undefined && retries < 0) {
+				throw new Error("retries must be >= 0");
+			}
+			if (retries != undefined && retries > 10) {
+				throw new Error("retries must be <= 10");
+			}
+			if (
+				options.lockfileDirectory != undefined &&
+				directory != undefined
+			) {
+				throw new Error(
+					"lockfileDirectory and lockfile.directory must not both be specified",
+				);
 			}
 		}
 	}
@@ -252,6 +306,14 @@ export class JsonlDB<V extends unknown = unknown> {
 		// Open the file for appending and reading
 		await fs.ensureDir(path.dirname(this.filename));
 
+		let retryOptions: lockfile.LockOptions["retries"];
+		if (this.options.lockfile?.retries) {
+			retryOptions = {
+				retries: this.options.lockfile.retries,
+				factor: 1.25,
+			};
+		}
+
 		try {
 			await fs.ensureDir(path.dirname(this.lockfileName));
 			await lockfile.lock(this.lockfileName, {
@@ -262,7 +324,10 @@ export class JsonlDB<V extends unknown = unknown> {
 					// Avoid timeouts during testing
 					process.env.NODE_ENV === "test"
 						? 100000
-						: /* istanbul ignore next - this is impossible to test */ undefined,
+						: /* istanbul ignore next - this is impossible to test */ this
+								.options.lockfile?.staleMs,
+				update: this.options.lockfile?.updateMs,
+				retries: retryOptions,
 
 				onCompromised: /* istanbul ignore next */ () => {
 					// do nothing
