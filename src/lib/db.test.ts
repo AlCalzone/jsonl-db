@@ -132,6 +132,76 @@ describe("lib/db", () => {
 				).toThrowError("maxBufferedCommands");
 			});
 		});
+
+		describe("validates lockfile options", () => {
+			it("staleMs < 5000", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								staleMs: 2500,
+							},
+						}),
+				).toThrowError("staleMs");
+			});
+
+			it("updateMs < 1000", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								updateMs: 999,
+							},
+						}),
+				).toThrowError("updateMs");
+			});
+
+			it("updateMs > staleMs/2", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								staleMs: 5000,
+								updateMs: 10001,
+							},
+						}),
+				).toThrowError("updateMs");
+			});
+
+			it("retries < 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								retries: -1,
+							},
+						}),
+				).toThrowError("retries");
+			});
+
+			it("retries > 10", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								retries: 11,
+							},
+						}),
+				).toThrowError("retries");
+			});
+
+			it("lockfileDirectory and lockfile.directory both present", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								directory: "/lock/dir",
+							},
+							lockfileDirectory: "/lock/dir2",
+						}),
+				).toThrowError("lockfileDirectory");
+			});
+		});
 	});
 
 	describe("open()", () => {
