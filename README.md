@@ -95,7 +95,7 @@ const db = new DB("/path/to/file", { lockfile: { /* lockfile options */ } });
 | `staleMs` | `10000` | Duration after which the lock is considered stale. Minimum: `2000` |
 | `updateMs` | `staleMs/2` | The interval in which the lockfile's `mtime` will be updated. Range: `1000 ... staleMs/2` |
 | `retries` | `0` | How often to retry acquiring a lock before giving up. The retries progressively wait longer with an exponential backoff strategy. |
-| `retryMinTimeoutMs` | `updateMs/2` or `1000` | The start interval used for retries. |
+| `retryMinTimeoutMs` | `updateMs/2` or `1000` | The start interval used for retries. Minimum: `100` |
 
 
 ### Copying and compressing the database

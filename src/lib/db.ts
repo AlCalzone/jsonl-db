@@ -246,8 +246,8 @@ export class JsonlDB<V extends unknown = unknown> {
 			if (retries != undefined && retries > 10) {
 				throw new Error("retries must be <= 10");
 			}
-			if (retryMinTimeoutMs != undefined && retryMinTimeoutMs < 0) {
-				throw new Error("retryMinTimeoutMs must be >= 0");
+			if (retryMinTimeoutMs != undefined && retryMinTimeoutMs < 100) {
+				throw new Error("retryMinTimeoutMs must be >= 100");
 			}
 			if (
 				options.lockfileDirectory != undefined &&
