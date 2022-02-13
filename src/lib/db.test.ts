@@ -190,6 +190,17 @@ describe("lib/db", () => {
 				).toThrowError("retries");
 			});
 
+			it("retryMinTimeoutMs < 0", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								retryMinTimeoutMs: -1,
+							},
+						}),
+				).toThrowError("retryMinTimeoutMs");
+			});
+
 			it("lockfileDirectory and lockfile.directory both present", () => {
 				expect(
 					() =>

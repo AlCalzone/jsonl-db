@@ -92,9 +92,10 @@ const db = new DB("/path/to/file", { lockfile: { /* lockfile options */ } });
 | Option | Default | Description |
 |-----------------|---------|-------------|
 | `directory` | - | Change where the lockfile is created, e.g. to put the lockfile into a `tmpfs`. By default the lockfile is created in the same directory as the DB file. If the directory does not exist, it will be created when opening the DB. |
-| `staleMs` | `10000` | Duration after which the lock is considered stale. Minimum: `5000` |
+| `staleMs` | `10000` | Duration after which the lock is considered stale. Minimum: `2000` |
 | `updateMs` | `staleMs/2` | The interval in which the lockfile's `mtime` will be updated. Range: `1000 ... staleMs/2` |
 | `retries` | `0` | How often to retry acquiring a lock before giving up. The retries progressively wait longer with an exponential backoff strategy. |
+| `retryMinTimeoutMs` | `updateMs/2` or `1000` | The start interval used for retries. |
 
 
 ### Copying and compressing the database
@@ -149,6 +150,10 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* Allow setting minimum retry timeout
+* Correct minimum value for the lockfile's stale timeout
+
 ### 2.5.0 (2022-02-13)
 * Add the ability to control the lockfile's stale/update timeouts and retrying acquiring a lock
 
