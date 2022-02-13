@@ -150,7 +150,7 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 2.5.1 (2022-02-13)
 * Allow setting minimum retry timeout
 * Correct minimum value for the lockfile's stale timeout
 
