@@ -149,6 +149,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 2.5.0 (2022-02-13)
+* Add the ability to control the lockfile's stale/update timeouts and retrying acquiring a lock
+
 ### 2.4.3 (2022-02-09)
 * Errors while automatically compressing the DB are now caught
 
