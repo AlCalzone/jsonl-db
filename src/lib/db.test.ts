@@ -134,12 +134,12 @@ describe("lib/db", () => {
 		});
 
 		describe("validates lockfile options", () => {
-			it("staleMs < 5000", () => {
+			it("staleMs < 2000", () => {
 				expect(
 					() =>
 						new JsonlDB("foo", {
 							lockfile: {
-								staleMs: 2500,
+								staleMs: 1999,
 							},
 						}),
 				).toThrowError("staleMs");
@@ -188,6 +188,17 @@ describe("lib/db", () => {
 							},
 						}),
 				).toThrowError("retries");
+			});
+
+			it("retryMinTimeoutMs < 100", () => {
+				expect(
+					() =>
+						new JsonlDB("foo", {
+							lockfile: {
+								retryMinTimeoutMs: 99,
+							},
+						}),
+				).toThrowError("retryMinTimeoutMs");
 			});
 
 			it("lockfileDirectory and lockfile.directory both present", () => {

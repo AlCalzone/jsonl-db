@@ -85,6 +85,8 @@ export interface JsonlDBOptions<V> {
 		 * Range: [0...10]. Default: 0
 		 */
 		retries?: number;
+		/** The start interval used for retries. Default: updateMs/2 */
+		retryMinTimeoutMs?: number;
 	}>;
 
 	/**
@@ -227,9 +229,10 @@ export class JsonlDB<V extends unknown = unknown> {
 				retries,
 				staleMs = 10000,
 				updateMs = staleMs / 2,
+				retryMinTimeoutMs,
 			} = options.lockfile;
-			if (staleMs < 5000) {
-				throw new Error("staleMs must be >= 5000");
+			if (staleMs < 2000) {
+				throw new Error("staleMs must be >= 2000");
 			}
 			if (updateMs < 1000) {
 				throw new Error("updateMs must be >= 1000");
@@ -242,6 +245,9 @@ export class JsonlDB<V extends unknown = unknown> {
 			}
 			if (retries != undefined && retries > 10) {
 				throw new Error("retries must be <= 10");
+			}
+			if (retryMinTimeoutMs != undefined && retryMinTimeoutMs < 100) {
+				throw new Error("retryMinTimeoutMs must be >= 100");
 			}
 			if (
 				options.lockfileDirectory != undefined &&
@@ -309,6 +315,9 @@ export class JsonlDB<V extends unknown = unknown> {
 		let retryOptions: lockfile.LockOptions["retries"];
 		if (this.options.lockfile?.retries) {
 			retryOptions = {
+				minTimeout:
+					this.options.lockfile.retryMinTimeoutMs ??
+					(this.options.lockfile.updateMs ?? 2000) / 2,
 				retries: this.options.lockfile.retries,
 				factor: 1.25,
 			};
