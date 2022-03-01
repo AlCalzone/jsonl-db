@@ -35,7 +35,7 @@
   "devDependencies": {
     "@alcalzone/release-script": "~3.4.2",
     "@alcalzone/release-script-plugin-license": "~3.5.0",
-    "@babel/cli": "^7.16.8",
+    "@babel/cli": "^7.17.6",
     "@babel/core": "^7.17.5",
     "@babel/preset-env": "^7.16.11",
     "@babel/preset-typescript": "^7.16.7",
@@ -43,7 +43,7 @@
     "@commitlint/config-conventional": "^13.2.0",
     "@tsconfig/node12": "^1.0.9",
     "@types/fs-extra": "^9.0.13",
-    "@types/jest": "^27.4.0",
+    "@types/jest": "^27.4.1",
     "@types/mock-fs": "^4.13.1",
     "@types/node": "^12.20.39",
     "@types/proper-lockfile": "^4.1.2",
