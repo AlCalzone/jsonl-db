@@ -3,7 +3,7 @@ module.exports = {
 	roots: ["<rootDir>/src"],
 	testRegex: "(\\.|/)test\\.tsx?$",
 	moduleFileExtensions: ["ts", "tsx", "js", "jsx", "json", "node"],
-	setupFilesAfterEnv: ["jest-extended"],
+	setupFilesAfterEnv: ["jest-extended/all"],
 	collectCoverage: false,
 	collectCoverageFrom: ["src/**/*.ts", "!src/**/*.test.ts"],
 	coverageReporters: ["lcov", "html", "text-summary"],
