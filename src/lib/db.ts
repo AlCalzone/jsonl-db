@@ -103,7 +103,6 @@ export interface FsWriteOptions {
 	encoding?: string | null;
 	flag?: string;
 	mode?: number;
-	// eslint-disable-next-line @typescript-eslint/ban-types
 	fs?: object;
 	replacer?: any;
 	spaces?: number | string;
@@ -116,7 +115,7 @@ enum Operation {
 	Delete = 2,
 }
 
-type LazyEntry<V extends unknown = unknown> = (
+type LazyEntry<V = unknown> = (
 	| {
 			op: Operation.Clear;
 	  }
@@ -166,7 +165,7 @@ function getCurrentErrorStack(): string {
 	return (tmp as any).stack.split("\n").slice(2).join("\n");
 }
 
-export class JsonlDB<V extends unknown = unknown> {
+export class JsonlDB<V = unknown> {
 	public constructor(filename: string, options: JsonlDBOptions<V> = {}) {
 		this.validateOptions(options);
 

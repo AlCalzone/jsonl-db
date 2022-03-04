@@ -132,9 +132,83 @@ async function testSmall() {
 	console.log();
 }
 
+async function testDelete() {
+	const testDB: JsonlDB<any> = new JsonlDB("test.jsonl", {
+		autoCompress: {
+			sizeFactor: 2,
+			sizeFactorMinimumSize: 5000,
+		},
+		ignoreReadErrors: true,
+		throttleFS: {
+			intervalMs: 60000,
+			maxBufferedCommands: 100,
+		},
+	});
+
+	function makeObj(i: number) {
+		return {
+			type: "state",
+			common: {
+				name: i.toString(),
+				read: true,
+				write: true,
+				role: "state",
+				type: "number",
+			},
+			native: {},
+		};
+	}
+
+	const NUM_PASSES = 10;
+	const NUM_OBJECTS = 100000;
+	let total: number = 0;
+
+	console.log("start test DELETE");
+
+	for (let pass = 1; pass <= NUM_PASSES; pass++) {
+		await fs.remove("test.jsonl");
+
+		await testDB.open();
+
+		for (let i = 0; i < NUM_OBJECTS; i++) {
+			const key = `benchmark.0.test${i}`;
+			const value = makeObj(i);
+			testDB.set(key, value);
+		}
+
+		const start = Date.now();
+		for (let i = 0; i < NUM_OBJECTS; i++) {
+			const key = `benchmark.0.test${i}`;
+			testDB.delete(key);
+		}
+
+		await testDB.close();
+
+		const time = Date.now() - start;
+		total += time;
+
+		process.stdout.write(".");
+	}
+
+	await fs.remove("test.jsonl");
+
+	process.stdout.write("\n\n");
+
+	console.log(`${NUM_PASSES}x, ${NUM_OBJECTS} objects`);
+	console.log(`  ${(total / NUM_PASSES).toFixed(2)} ms / pass`);
+	console.log(
+		`  ${(((NUM_OBJECTS * NUM_PASSES) / total) * 1000).toFixed(
+			2,
+		)} changes/s`,
+	);
+	console.log();
+	console.log();
+}
+
 debugger;
 testSmall()
 	.then(testMedium)
+	.then(testDelete)
 	.catch(console.error)
 	.finally(() => fs.remove("test.jsonl"))
 	.catch(() => {
