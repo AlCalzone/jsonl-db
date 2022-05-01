@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "alcalzone-shared": "^4.0.1",
-    "fs-extra": "^10.0.1",
+    "fs-extra": "^10.1.0",
     "proper-lockfile": "^4.1.2"
   },
   "scripts": {
