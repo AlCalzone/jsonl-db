@@ -1,32 +1,46 @@
 import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
 import path from "path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestFS } from "../../test/testFs";
 import { JsonlDB } from "./db";
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
 
-jest.mock("fs-extra", () => {
-	const originalFS = jest.requireActual("fs-extra");
+async function retry(times: number, test: () => Promise<void>): Promise<void> {
+	for (let i = 0; i < times; i++) {
+		try {
+			await test();
+			return;
+		} catch (e) {
+			if (i === times - 1) {
+				throw e;
+			}
+		}
+	}
+}
+
+vi.mock("fs-extra", async () => {
+	const originalFS = (await vi.importActual<any>("fs-extra")).default;
 	// eslint-disable-next-line @typescript-eslint/no-var-requires
 	const wait = require("alcalzone-shared/async").wait;
 	return {
 		__esModule: true, // Use it when dealing with esModules
 		...originalFS,
-		appendFile: jest.fn().mockImplementation(async (...args) => {
+		appendFile: vi.fn().mockImplementation(async (...args: any[]) => {
 			if (mockAppendFileThrottle > 0) {
 				await wait(mockAppendFileThrottle);
 			}
 			return originalFS.appendFile(...args);
 		}),
-		move: jest.fn().mockImplementation(async (...args) => {
+		move: vi.fn().mockImplementation(async (...args: any[]) => {
 			if (mockMoveFileThrottle > 0) {
 				await wait(mockMoveFileThrottle);
 			}
 			return originalFS.move(...args);
 		}),
-		createReadStream: jest.fn().mockImplementation((path, options) => {
+		createReadStream: vi.fn().mockImplementation((path, options) => {
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			const { PassThrough } = require("stream");
 			const { /*fd,*/ encoding } = options;
@@ -42,6 +56,7 @@ jest.mock("fs-extra", () => {
 		}),
 	};
 });
+
 function assertEqual<
 	T1 extends {
 		keys(): IterableIterator<string>;
@@ -55,7 +70,7 @@ function assertEqual<
 	},
 >(one: T1, two: T2) {
 	for (const key of one.keys()) {
-		expect(two.has(key)).toBeTrue();
+		expect(two.has(key)).toBe(true);
 		expect(two.get(key)).toBe(one.get(key));
 	}
 }
@@ -254,7 +269,7 @@ describe("lib/db", () => {
 		it("sets the isOpen property to true", async () => {
 			const db = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db.open();
-			expect(db.isOpen).toBeTrue();
+			expect(db.isOpen).toBe(true);
 			await db.close();
 		});
 
@@ -283,7 +298,7 @@ describe("lib/db", () => {
 			await db.open();
 			await db.close();
 
-			await expect(fs.pathExists(lockfileDirectory)).resolves.toBeTrue();
+			await expect(fs.pathExists(lockfileDirectory)).resolves.toBe(true);
 		});
 
 		it("reads the file if it exists", async () => {
@@ -315,11 +330,11 @@ describe("lib/db", () => {
 			await db.open();
 
 			expect(db.size).toBe(1);
-			expect(db.has("key1")).toBeFalse();
-			expect(db.has("key2")).toBeTrue();
+			expect(db.has("key1")).toBe(false);
+			expect(db.has("key2")).toBe(true);
 			expect(db.get("key2")).toBe("2");
 
-			const spy = jest.fn();
+			const spy = vi.fn();
 			db.forEach(spy);
 			expect(spy).toBeCalledTimes(1);
 			expect(spy.mock.calls[0].slice(0, 2)).toEqual(["2", "key2"]);
@@ -331,9 +346,9 @@ describe("lib/db", () => {
 			const db = new JsonlDB(path.join(testFSRoot, "emptyLines"));
 			await db.open();
 
-			expect(db.has("key1")).toBeTrue();
+			expect(db.has("key1")).toBe(true);
 			expect(db.get("key1")).toBe(1);
-			expect(db.has("key2")).toBeTrue();
+			expect(db.has("key2")).toBe(true);
 			expect(db.get("key2")).toBe("2");
 
 			await db.close();
@@ -376,7 +391,7 @@ describe("lib/db", () => {
 			const db = new JsonlDB(path.join(testFSRoot, "broken"), {
 				ignoreReadErrors: true,
 			});
-			await expect(db.open()).toResolve();
+			await db.open();
 			await db.close();
 		});
 
@@ -384,12 +399,12 @@ describe("lib/db", () => {
 			const db = new JsonlDB(path.join(testFSRoot, "broken2"), {
 				ignoreReadErrors: true,
 			});
-			await expect(db.open()).toResolve();
+			await db.open();
 			await db.close();
 		});
 
 		it("transforms each value using the valueReviver function if any is passed", async () => {
-			const reviver = jest.fn().mockReturnValue("eeee");
+			const reviver = vi.fn().mockReturnValue("eeee");
 			const db = new JsonlDB(path.join(testFSRoot, "reviver"), {
 				reviver,
 			});
@@ -435,8 +450,8 @@ describe("lib/db", () => {
 		it("removes all entries from the database and truncates the file", async () => {
 			db.clear();
 			expect(db.size).toBe(0);
-			expect(db.has("key1")).toBeFalse();
-			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key1")).toBe(false);
+			expect(db.has("key2")).toBe(false);
 
 			// Force the stream to be flushed
 			await db.close();
@@ -474,37 +489,37 @@ describe("lib/db", () => {
 		});
 
 		it("removes the given key from the database and writes a line with an undefined value", async () => {
-			expect(db.delete("key2")).toBeTrue();
+			expect(db.delete("key2")).toBe(true);
 			expect(db.size).toBe(1);
-			expect(db.has("key1")).toBeTrue();
-			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key1")).toBe(true);
+			expect(db.has("key2")).toBe(false);
 
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(
-				fs.readFile(testFilenameFull, "utf8"),
-			).resolves.toEndWith(`{"k":"key2"}\n`);
+			const fileContent = await fs.readFile(testFilenameFull, "utf8");
+			expect(fileContent.endsWith(`{"k":"key2"}\n`)).toBe(true);
 		});
 
 		it("removes multiple key from the database in the correct order", async () => {
-			expect(db.delete("key2")).toBeTrue();
-			expect(db.delete("key1")).toBeTrue();
+			expect(db.delete("key2")).toBe(true);
+			expect(db.delete("key1")).toBe(true);
 			expect(db.size).toBe(0);
-			expect(db.has("key1")).toBeFalse();
-			expect(db.has("key2")).toBeFalse();
+			expect(db.has("key1")).toBe(false);
+			expect(db.has("key2")).toBe(false);
 
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(
-				fs.readFile(testFilenameFull, "utf8"),
-			).resolves.toEndWith(`{"k":"key2"}\n{"k":"key1"}\n`);
+			const fileContent = await fs.readFile(testFilenameFull, "utf8");
+			expect(fileContent.endsWith(`{"k":"key2"}\n{"k":"key1"}\n`)).toBe(
+				true,
+			);
 		});
 
 		it("deleting a key twice does not write to the log twice", async () => {
-			expect(db.delete("key2")).toBeTrue();
-			expect(db.delete("key2")).toBeFalse();
+			expect(db.delete("key2")).toBe(true);
+			expect(db.delete("key2")).toBe(false);
 
 			// Force the stream to be flushed
 			await db.close();
@@ -543,7 +558,7 @@ describe("lib/db", () => {
 		it("adds the given key to the database and writes a line with the serialized value", async () => {
 			db.set("key", true);
 			expect(db.size).toBe(1);
-			expect(db.has("key")).toBeTrue();
+			expect(db.has("key")).toBe(true);
 
 			// Force the stream to be flushed
 			await db.close();
@@ -594,7 +609,7 @@ describe("lib/db", () => {
 		it("both versions throw when the DB is not open", async () => {
 			await db.close();
 			expect(() => db.importJson({})).toThrowError("not open");
-			await expect(db.importJson("")).toReject();
+			await expect(db.importJson("")).rejects.toThrow();
 		});
 
 		it("the object version adds all keys and values to the database", async () => {
@@ -660,7 +675,7 @@ describe("lib/db", () => {
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
-			await expect(db.exportJson(jsonFilenameFull)).toReject();
+			await expect(db.exportJson(jsonFilenameFull)).rejects.toThrow();
 		});
 
 		it("overwrites the given file with the DB contents as valid JSON", async () => {
@@ -708,7 +723,7 @@ describe("lib/db", () => {
 
 		it("sets the isOpen property to false", async () => {
 			await db.close();
-			expect(db.isOpen).toBeFalse();
+			expect(db.isOpen).toBe(false);
 		});
 	});
 
@@ -837,10 +852,10 @@ describe("lib/db", () => {
 			);
 			await expect(
 				fs.pathExists(testFilenameFull + ".dump"),
-			).resolves.toBeFalse();
+			).resolves.toBe(false);
 			await expect(
 				fs.pathExists(testFilenameFull + ".bak"),
-			).resolves.toBeFalse();
+			).resolves.toBe(false);
 		});
 
 		it("after compresing, writing works as usual", async () => {
@@ -1117,34 +1132,34 @@ describe("lib/db", () => {
 		});
 
 		it("..., but only above the minimum size", async () => {
-			jest.retryTimes(5);
+			await retry(5, async () => {
+				db = new JsonlDB(testFilenameFull, {
+					autoCompress: {
+						sizeFactor: 4,
+						sizeFactorMinimumSize: 6,
+					},
+				});
+				await db.open();
 
-			db = new JsonlDB(testFilenameFull, {
-				autoCompress: {
-					sizeFactor: 4,
-					sizeFactorMinimumSize: 6,
-				},
+				for (let i = 2; i <= 5; i++) {
+					db.set("key1", i);
+					await wait(75);
+				}
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.not.toBe('{"k":"key1","v":5}\n');
+
+				db.set("key1", 6);
+				// Wait a bit because compress is async
+				await wait(50);
+				// close the DB to make sure everything is flushed
+				await db.close();
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.toBe('{"k":"key1","v":6}\n');
 			});
-			await db.open();
-
-			for (let i = 2; i <= 5; i++) {
-				db.set("key1", i);
-				await wait(75);
-			}
-
-			await expect(
-				fs.readFile(testFilenameFull, "utf8"),
-			).resolves.not.toBe('{"k":"key1","v":5}\n');
-
-			db.set("key1", 6);
-			// Wait a bit because compress is async
-			await wait(50);
-			// close the DB to make sure everything is flushed
-			await db.close();
-
-			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
-				'{"k":"key1","v":6}\n',
-			);
 		}, 10000);
 
 		it("doesn't trigger when different keys are added", async () => {
@@ -1153,7 +1168,7 @@ describe("lib/db", () => {
 					sizeFactor: 4,
 				},
 			});
-			const compressSpy = jest.spyOn(db, "compress");
+			const compressSpy = vi.spyOn(db, "compress");
 			await db.open();
 
 			for (let i = 2; i <= 20; i++) {
@@ -1164,31 +1179,33 @@ describe("lib/db", () => {
 		});
 
 		it("triggers after intervalMs", async () => {
-			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db = new JsonlDB(testFilenameFull, {
-				autoCompress: {
-					intervalMs: 100,
-				},
+				db = new JsonlDB(testFilenameFull, {
+					autoCompress: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+
+				db.set("key1", 2);
+				await wait(25);
+				db.set("key1", 3);
+				await wait(25);
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.not.toBe('{"k":"key1","v":3}\n');
+
+				await wait(150);
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.toBe('{"k":"key1","v":3}\n');
+
+				await db.close();
 			});
-			await db.open();
-
-			db.set("key1", 2);
-			await wait(25);
-			db.set("key1", 3);
-			await wait(25);
-
-			await expect(
-				fs.readFile(testFilenameFull, "utf8"),
-			).resolves.not.toBe('{"k":"key1","v":3}\n');
-
-			await wait(75);
-
-			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
-				'{"k":"key1","v":3}\n',
-			);
-
-			await db.close();
 		});
 
 		it("..., but only if there were at least intervalMinChanges changes", async () => {
@@ -1287,117 +1304,125 @@ describe("lib/db", () => {
 		}
 
 		it("changes are only written after intervalMs has passed", async () => {
-			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db = new JsonlDB(testFilenameFull, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
-			db.clear();
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+				db.clear();
 
-			// Trigger at least one scheduled cork before the first write
-			await wait(110);
-			await assertFileContent("");
-
-			db.set("1", 1);
-
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(50);
-			for (let i = 2; i <= 10; i++) {
-				db.set(i.toString(), i);
+				// Trigger at least one scheduled cork before the first write
+				await wait(110);
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Give it a little more time than necessary
-			await wait(60);
-			await assertFileContent(expected);
+				db.set("1", 1);
+
+				let expected = `{"k":"1","v":1}\n`;
+				await assertFileContent("");
+
+				await wait(50);
+				for (let i = 2; i <= 10; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
+
+				// Give it a little more time than necessary
+				await wait(60);
+				await assertFileContent(expected);
+			});
 		});
 
 		it("or the maximum buffer size was reached", async () => {
-			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db = new JsonlDB(testFilenameFull, {
-				throttleFS: {
-					intervalMs: 100,
-					maxBufferedCommands: 5,
-				},
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+						maxBufferedCommands: 5,
+					},
+				});
+				await db.open();
+
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
+				await assertFileContent("");
+
+				await wait(50);
+				for (let i = 2; i <= 6; i++) {
+					db.set(i.toString(), i);
+					expected += `{"k":"${i}","v":${i}}\n`;
+					if (i <= 5) await assertFileContent("");
+				}
+
+				// Give it a little time to write
+				await wait(40);
+				await assertFileContent(expected);
 			});
-			await db.open();
-
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(50);
-			for (let i = 2; i <= 6; i++) {
-				db.set(i.toString(), i);
-				expected += `{"k":"${i}","v":${i}}\n`;
-				if (i <= 5) await assertFileContent("");
-			}
-
-			// Give it a little time to write
-			await wait(40);
-			await assertFileContent(expected);
 		});
 
 		it("works after compressing", async () => {
-			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db = new JsonlDB(testFilenameFull, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
-			await db.compress();
-			await wait(15);
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+				await db.compress();
+				await wait(15);
 
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(15);
-			for (let i = 2; i <= 100; i++) {
-				db.set(i.toString(), i);
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Give it a little more time than necessary
-			await wait(100);
-			await assertFileContent(expected);
+				await wait(15);
+				for (let i = 2; i <= 100; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
+
+				// Give it a little more time than necessary
+				await wait(100);
+				await assertFileContent(expected);
+			});
 		});
 
 		it("should still flush the buffer on close", async () => {
-			jest.retryTimes(3); // timeout-based tests are flaky. retry to be sure
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db = new JsonlDB(testFilenameFull, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
 
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(50);
-			for (let i = 2; i <= 100; i++) {
-				db.set(i.toString(), i);
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Close the db before the next forced flush
-			await db.close();
+				await wait(50);
+				for (let i = 2; i <= 100; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
 
-			await assertFileContent(expected);
+				// Close the db before the next forced flush
+				await db.close();
+
+				await assertFileContent(expected);
+			});
 		});
 	});
 
@@ -1488,7 +1513,7 @@ describe("lib/db", () => {
 		});
 
 		it("before saving, values are transformed using the serializer function if any is passed", async () => {
-			const serializer = jest.fn().mockReturnValue("ffff");
+			const serializer = vi.fn().mockReturnValue("ffff");
 			db = new JsonlDB(testFilenameFull, { serializer });
 			await db.open();
 
@@ -1527,13 +1552,13 @@ describe("lib/db", () => {
 
 		async function assertCleanedUp() {
 			// The other files should have been cleaned up
-			await expect(fs.pathExists(testFilenameFull)).resolves.toBeTrue();
+			await expect(fs.pathExists(testFilenameFull)).resolves.toBe(true);
 			await expect(
 				fs.pathExists(testFilenameFull + ".bak"),
-			).resolves.toBeFalse();
+			).resolves.toBe(false);
 			await expect(
 				fs.pathExists(testFilenameFull + ".dump"),
-			).resolves.toBeFalse();
+			).resolves.toBe(false);
 		}
 
 		it("db truncated, .bak ok -> use .bak", async () => {
@@ -1557,9 +1582,9 @@ describe("lib/db", () => {
 			await db.open();
 
 			expect(db.size).toBe(2);
-			expect(db.has("key1")).toBeTrue();
-			expect(db.has("key2")).toBeFalse();
-			expect(db.has("key3")).toBeTrue();
+			expect(db.has("key1")).toBe(true);
+			expect(db.has("key2")).toBe(false);
+			expect(db.has("key3")).toBe(true);
 			expect(db.get("key1")).toBe(1);
 			expect(db.get("key3")).toBe(3.5);
 
@@ -1586,9 +1611,9 @@ describe("lib/db", () => {
 			await db.open();
 
 			expect(db.size).toBe(2);
-			expect(db.has("key1")).toBeTrue();
-			expect(db.has("key2")).toBeFalse();
-			expect(db.has("key3")).toBeTrue();
+			expect(db.has("key1")).toBe(true);
+			expect(db.has("key2")).toBe(false);
+			expect(db.has("key3")).toBe(true);
 			expect(db.get("key1")).toBe(1);
 			expect(db.get("key3")).toBe(3.5);
 
@@ -1613,9 +1638,9 @@ describe("lib/db", () => {
 			await db.open();
 
 			expect(db.size).toBe(2);
-			expect(db.has("key1")).toBeTrue();
-			expect(db.has("key2")).toBeFalse();
-			expect(db.has("key3")).toBeTrue();
+			expect(db.has("key1")).toBe(true);
+			expect(db.has("key2")).toBe(false);
+			expect(db.has("key3")).toBe(true);
 			expect(db.get("key1")).toBe(1);
 			expect(db.get("key3")).toBe(3);
 
@@ -1638,9 +1663,9 @@ describe("lib/db", () => {
 			await db.open();
 
 			expect(db.size).toBe(2);
-			expect(db.has("key1")).toBeTrue();
-			expect(db.has("key2")).toBeFalse();
-			expect(db.has("key3")).toBeTrue();
+			expect(db.has("key1")).toBe(true);
+			expect(db.has("key2")).toBe(false);
+			expect(db.has("key3")).toBe(true);
 			expect(db.get("key1")).toBe(1);
 			expect(db.get("key3")).toBe(3);
 
