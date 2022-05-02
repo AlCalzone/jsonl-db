@@ -1208,7 +1208,7 @@ describe("lib/db", () => {
 			}
 
 			// Give it a little more time than necessary
-			await wait(60);
+			await wait(75);
 			await assertFileContent(expected);
 		});
 
