@@ -19,6 +19,6 @@
 		80,
 		120
 	],
-	"vitest.commandLine": "npm test",
+	"vitest.commandLine": "npm run test:ts --",
 	"vitest.enable": true
 }
