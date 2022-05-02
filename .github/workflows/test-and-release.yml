@@ -50,7 +50,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node-version: [12.x, 14.x, 16.x]
+        node-version: [12.x, 14.x, 16.x, 18.x]
         os: [ubuntu-latest]
 
     steps:
@@ -65,7 +65,7 @@ jobs:
 
     - name: Run component tests
       # Some tests are flaky, try them 3 times if necessary
-      run: npm run test:ci || npm run test:ci || npm run test:ci
+      run: npm test || npm test || npm test
       env:
         CI: true
 
