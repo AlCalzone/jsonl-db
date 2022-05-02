@@ -65,7 +65,7 @@ jobs:
 
     - name: Run component tests
       # Some tests are flaky, try them 3 times if necessary
-      run: npm test || npm test || npm test
+      run: npm run test:ts || npm run test:ts || npm run test:ts
       env:
         CI: true
 
