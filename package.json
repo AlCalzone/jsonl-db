@@ -35,7 +35,7 @@
   "devDependencies": {
     "@alcalzone/release-script": "~3.5.9",
     "@alcalzone/release-script-plugin-license": "~3.5.9",
-    "@commitlint/cli": "^16.2.3",
+    "@commitlint/cli": "^17.0.2",
     "@commitlint/config-conventional": "^16.2.4",
     "@tsconfig/node12": "^1.0.9",
     "@types/fs-extra": "^9.0.13",
