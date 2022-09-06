@@ -1,3 +1,4 @@
+import * as lockfile from "@alcalzone/proper-lockfile";
 import { wait } from "alcalzone-shared/async";
 import {
 	createDeferredPromise,
@@ -6,7 +7,6 @@ import {
 import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as path from "path";
-import * as lockfile from "proper-lockfile";
 import * as readline from "readline";
 
 export interface JsonlDBOptions<V> {
