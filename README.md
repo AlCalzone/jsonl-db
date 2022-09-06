@@ -150,6 +150,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 2.5.3 (2022-09-06)
+* Consider lockfiles from the future to be stale (#371)
+
 ### 2.5.2 (2022-05-02)
 * Dependency updates
 
