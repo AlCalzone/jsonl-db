@@ -49,7 +49,7 @@
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-prettier": "^4.2.1",
     "husky": "^8.0.1",
-    "mock-fs": "^5.1.4",
+    "mock-fs": "^5.2.0",
     "prettier": "^2.7.1",
     "source-map-support": "^0.5.21",
     "ts-node": "^10.9.1",
