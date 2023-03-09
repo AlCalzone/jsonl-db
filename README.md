@@ -153,6 +153,10 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 3.0.0 (2023-03-09)
+* Support recording timestamps for each value (#413)
+* Drop support for Node.js 12 (#414)
+
 ### 2.5.3 (2022-09-06)
 * Consider lockfiles from the future to be stale (#371)
 
