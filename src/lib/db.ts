@@ -26,6 +26,9 @@ export interface JsonlDBOptions<V> {
 	 */
 	serializer?: (key: string, value: V) => any;
 
+	/** Whether timestamps should be recorded when setting values. Default: false */
+	enableTimestamps?: boolean;
+
 	/**
 	 * Configure when the DB should be automatically compressed.
 	 * If multiple conditions are configured, the DB is compressed when any of them are fulfilled
@@ -127,6 +130,7 @@ type LazyEntry<V = unknown> = (
 			op: Operation.Write;
 			key: string;
 			value: V;
+			timestamp?: number;
 	  }
 ) & {
 	serialize(): string;
@@ -267,6 +271,7 @@ export class JsonlDB<V = unknown> {
 	private options: JsonlDBOptions<V>;
 
 	private _db = new Map<string, V>();
+	private _timestamps = new Map<string, number>();
 	// Declare all map properties we can use directly
 	declare forEach: Map<string, V>["forEach"];
 	declare get: Map<string, V>["get"];
@@ -275,6 +280,10 @@ export class JsonlDB<V = unknown> {
 	declare entries: Map<string, V>["entries"];
 	declare keys: Map<string, V>["keys"];
 	declare values: Map<string, V>["values"];
+
+	public getTimestamp(key: string): number | undefined {
+		return this._timestamps.get(key);
+	}
 
 	public get size(): number {
 		return this._db.size;
@@ -530,8 +539,8 @@ export class JsonlDB<V = unknown> {
 
 	/** Parses a line and updates the internal DB correspondingly */
 	private parseLine(line: string): void {
-		const record: { k: string; v?: V } = JSON.parse(line);
-		const { k, v } = record;
+		const record: { k: string; v?: V; ts?: number } = JSON.parse(line);
+		const { k, v, ts } = record;
 		if (v !== undefined) {
 			this._db.set(
 				k,
@@ -539,8 +548,11 @@ export class JsonlDB<V = unknown> {
 					? this.options.reviver(k, v)
 					: v,
 			);
+			if (this.options.enableTimestamps && ts !== undefined) {
+				this._timestamps.set(k, ts);
+			}
 		} else {
-			this._db.delete(k);
+			if (this._db.delete(k)) this._timestamps.delete(k);
 		}
 	}
 
@@ -562,6 +574,7 @@ export class JsonlDB<V = unknown> {
 		if (ret) {
 			// Something was deleted
 			this._journal.push(this.makeLazyDelete(key));
+			this._timestamps.delete(key);
 		}
 		return ret;
 	}
@@ -571,7 +584,13 @@ export class JsonlDB<V = unknown> {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
-		this._journal.push(this.makeLazyWrite(key, value));
+		if (this.options.enableTimestamps) {
+			const ts = Date.now();
+			this._timestamps.set(key, ts);
+			this._journal.push(this.makeLazyWrite(key, value, ts));
+		} else {
+			this._journal.push(this.makeLazyWrite(key, value));
+		}
 		return this;
 	}
 
@@ -597,6 +616,7 @@ export class JsonlDB<V = unknown> {
 		}
 
 		for (const [key, value] of Object.entries(jsonOrFile)) {
+			// Importing JSON does not have timestamp information
 			this._db.set(key, value);
 			this._journal.push(this.makeLazyWrite(key, value));
 		}
@@ -612,12 +632,16 @@ export class JsonlDB<V = unknown> {
 		return fs.writeJSON(filename, composeObject([...this._db]), options);
 	}
 
-	private entryToLine(key: string, value?: V): string {
+	private entryToLine(key: string, value?: V, timestamp?: number): string {
 		if (value !== undefined) {
-			return JSON.stringify({
-				k: key,
-				v: this.options.serializer?.(key, value) ?? value,
-			});
+			const k = key;
+			const v = this.options.serializer?.(key, value) ?? value;
+
+			if (this.options.enableTimestamps && timestamp !== undefined) {
+				return JSON.stringify({ k, v, ts: timestamp });
+			} else {
+				return JSON.stringify({ k, v });
+			}
 		} else {
 			return JSON.stringify({ k: key });
 		}
@@ -650,15 +674,17 @@ export class JsonlDB<V = unknown> {
 	private makeLazyWrite(
 		key: string,
 		value: V,
+		timestamp?: number,
 	): LazyEntry<V> & { op: Operation.Write } {
 		let serialized: string | undefined;
 		return {
 			op: Operation.Write,
 			key,
 			value,
+			timestamp,
 			serialize: () => {
 				if (serialized == undefined) {
-					serialized = this.entryToLine(key, value);
+					serialized = this.entryToLine(key, value, timestamp);
 				}
 				return serialized;
 			},
@@ -683,13 +709,19 @@ export class JsonlDB<V = unknown> {
 		// Also, remember how many entries were in the journal. These are already part of
 		// the map, so we don't need to append them later and keep a consistent state
 		const entries = [...this._db];
+		const timestamps = new Map([...this._timestamps]);
 		const journalLength = this._journal.length;
 
 		// And persist them
 		let serialized = "";
 		for (const [key, value] of entries) {
 			// No need to serialize lazily here
-			serialized += this.entryToLine(key, value) + "\n";
+			if (this.options.enableTimestamps && timestamps.has(key)) {
+				serialized +=
+					this.entryToLine(key, value, timestamps.get(key)) + "\n";
+			} else {
+				serialized += this.entryToLine(key, value) + "\n";
+			}
 		}
 		await fs.appendFile(fd, serialized);
 

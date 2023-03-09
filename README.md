@@ -127,6 +127,10 @@ The following options exist (all optional) and can be combined:
 | `onClose` | `false` | Compress when closing the DB |
 | `onOpen` | `false` | Compress after opening the DB |
 
+### Keeping track of timestamps
+
+The DB can automatically keep track of the last time a key was accessed or modified. To do so, set the `enableTimestamps` option to `true`. Every `set` call will update the timestamp of a value, which can be retrieved using `getTimestamp(key)`.
+
 ### Import / Export
 
 Importing JSON files can be done this way:
