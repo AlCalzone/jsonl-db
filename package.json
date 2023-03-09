@@ -79,7 +79,7 @@
     "commit": "git-cz",
     "release": "release-script",
     "prepare": "husky install",
-    "perf": "ts-node test/perf.ts"
+    "perf": "ts-node --transpile-only test/perf.ts"
   },
   "config": {
     "commitizen": {
