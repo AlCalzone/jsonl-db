@@ -4,7 +4,6 @@ Simple JSONL-based key-value store. Uses an append-only file to store the data. 
 
 ![Build Status](https://action-badges.now.sh/AlCalzone/jsonl-db)
 <!-- [![Coverage Status](https://img.shields.io/coveralls/github/AlCalzone/jsonl-db.svg)](https://coveralls.io/github/AlCalzone/jsonl-db) -->
-[![Language grade: JavaScript](https://img.shields.io/lgtm/grade/javascript/g/AlCalzone/jsonl-db.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/AlCalzone/jsonl-db/context:javascript)
 [![node](https://img.shields.io/node/v/@alcalzone/jsonl-db.svg) ![npm](https://img.shields.io/npm/v/@alcalzone/jsonl-db.svg)](https://www.npmjs.com/package/@alcalzone/jsonl-db)
 
 
@@ -126,6 +125,10 @@ The following options exist (all optional) and can be combined:
 | `intervalMinChanges` | 1 | Configure the minimum count of changes for auto-compression based on time |
 | `onClose` | `false` | Compress when closing the DB |
 | `onOpen` | `false` | Compress after opening the DB |
+
+### Keeping track of timestamps
+
+The DB can automatically keep track of the last time a key was accessed or modified. To do so, set the `enableTimestamps` option to `true`. Every `set` call will update the timestamp of a value, which can be retrieved using `getTimestamp(key)`.
 
 ### Import / Export
 

@@ -7,8 +7,9 @@ process.on("unhandledRejection", (_r) => {
 	debugger;
 });
 
-async function testMedium() {
+async function testMedium(enableTimestamps: boolean = false) {
 	const testDB: JsonlDB<any> = new JsonlDB("test.jsonl", {
+		enableTimestamps,
 		autoCompress: {
 			sizeFactor: 2,
 			sizeFactorMinimumSize: 5000,
@@ -38,7 +39,11 @@ async function testMedium() {
 	const NUM_OBJECTS = 100000;
 	let total: number = 0;
 
-	console.log("start test MEDIUM");
+	console.log(
+		`start test MEDIUM, ${
+			enableTimestamps ? "timestamps" : "no timestamps"
+		}`,
+	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
 		await fs.remove("test.jsonl");
@@ -75,8 +80,9 @@ async function testMedium() {
 	console.log();
 }
 
-async function testSmall() {
+async function testSmall(enableTimestamps: boolean = false) {
 	const testDB: JsonlDB<any> = new JsonlDB("test.jsonl", {
+		enableTimestamps,
 		autoCompress: { onClose: false },
 		throttleFS: {
 			intervalMs: 1000,
@@ -89,7 +95,11 @@ async function testSmall() {
 	const NUM_CHANGES = 100000;
 	let total: number = 0;
 
-	console.log("start test SMALL");
+	console.log(
+		`start test SMALL, ${
+			enableTimestamps ? "timestamps" : "no timestamps"
+		}`,
+	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
 		await fs.remove("test.jsonl");
@@ -132,8 +142,9 @@ async function testSmall() {
 	console.log();
 }
 
-async function testDelete() {
+async function testDelete(enableTimestamps: boolean = false) {
 	const testDB: JsonlDB<any> = new JsonlDB("test.jsonl", {
+		enableTimestamps,
 		autoCompress: {
 			sizeFactor: 2,
 			sizeFactorMinimumSize: 5000,
@@ -163,7 +174,11 @@ async function testDelete() {
 	const NUM_OBJECTS = 100000;
 	let total: number = 0;
 
-	console.log("start test DELETE");
+	console.log(
+		`start test DELETE, ${
+			enableTimestamps ? "timestamps" : "no timestamps"
+		}`,
+	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
 		await fs.remove("test.jsonl");
@@ -206,9 +221,12 @@ async function testDelete() {
 }
 
 debugger;
-testSmall()
-	.then(testMedium)
-	.then(testDelete)
+testSmall(false)
+	.then(() => testSmall(true))
+	.then(() => testMedium(false))
+	.then(() => testMedium(true))
+	.then(() => testDelete(false))
+	.then(() => testDelete(true))
 	.catch(console.error)
 	.finally(() => fs.remove("test.jsonl"))
 	.catch(() => {

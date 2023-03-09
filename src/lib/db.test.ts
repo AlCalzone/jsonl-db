@@ -1516,4 +1516,123 @@ describe("lib/db", () => {
 			await db.close();
 		});
 	});
+
+	describe("timestamps", () => {
+		let db: JsonlDB;
+		const testFilename = "timestamps.jsonl";
+
+		beforeEach(async () => {});
+
+		afterEach(async () => {
+			vi.useRealTimers();
+			if (db) await db.close();
+			mockFs.restore();
+		});
+
+		async function assertFileContent(content: string): Promise<void> {
+			const actual = await fs.readFile(testFilename, "utf8");
+			expect(actual).toBe(content);
+		}
+
+		it("should be recorded and read", async () => {
+			mockFs({
+				[testFilename]: ``,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			vi.useFakeTimers({
+				now: 0,
+			});
+			db.set("0", "0");
+			vi.advanceTimersByTime(1000);
+
+			db.set("1", "1");
+
+			expect(db.getTimestamp("0")).toBe(0);
+			expect(db.getTimestamp("1")).toBe(1000);
+		});
+
+		it("should be stored in the db file", async () => {
+			mockFs({
+				[testFilename]: ``,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			vi.useFakeTimers({
+				now: 0,
+			});
+			db.set("0", "0");
+			vi.advanceTimersByTime(1000);
+
+			db.set("1", "1");
+
+			vi.useRealTimers();
+			await wait(100);
+
+			assertFileContent(
+				`{"k":"0","v":"0","ts":0}
+{"k":"1","v":"1","ts":1000}
+`,
+			);
+		});
+
+		it("should be parsed from the db file", async () => {
+			mockFs({
+				[testFilename]: `
+{"k":"key1","v":1,"ts":1}
+{"k":"key2","v":"2","ts":2}
+{"k":"key3","v":3}
+`,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			expect(db.getTimestamp("key1")).toBe(1);
+			expect(db.getTimestamp("key2")).toBe(2);
+			expect(db.getTimestamp("key3")).toBe(undefined);
+		});
+
+		it("should be undefined when not present in the db file", async () => {
+			mockFs({
+				[testFilename]: `
+{"k":"key1","v":1}
+{"k":"key3","v":3}`,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			expect(db.getTimestamp("key1")).toBe(undefined);
+			expect(db.getTimestamp("key3")).toBe(undefined);
+		});
+
+		it("deleting a key should delete the timestamp aswell", async () => {
+			mockFs({
+				[testFilename]: ``,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			db.set("test", true);
+			expect(db.getTimestamp("test")).not.toBe(undefined);
+			db.delete("test");
+			expect(db.getTimestamp("test")).toBe(undefined);
+		});
+	});
 });
