@@ -15,7 +15,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=12"
+    "node": ">=14"
   },
   "keywords": [
     "jsonl",
@@ -37,10 +37,10 @@
     "@alcalzone/release-script-plugin-license": "~3.5.9",
     "@commitlint/cli": "^17.3.0",
     "@commitlint/config-conventional": "^17.4.4",
-    "@tsconfig/node12": "^1.0.11",
+    "@tsconfig/node14": "^1.0.3",
     "@types/fs-extra": "^9.0.13",
     "@types/mock-fs": "^4.13.1",
-    "@types/node": "^12.20.39",
+    "@types/node": "^14.18.37",
     "@types/proper-lockfile": "^4.1.2",
     "@typescript-eslint/eslint-plugin": "^5.45.0",
     "@typescript-eslint/parser": "^5.54.0",
