@@ -160,6 +160,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 3.1.0 (2023-03-15)
+* Support opt-out of updating timestamps for individual set calls (#415)
+
 ### 3.0.0 (2023-03-09)
 * Support recording timestamps for each value (#413)
 * Drop support for Node.js 12 (#414)
