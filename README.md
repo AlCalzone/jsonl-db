@@ -128,7 +128,14 @@ The following options exist (all optional) and can be combined:
 
 ### Keeping track of timestamps
 
-The DB can automatically keep track of the last time a key was accessed or modified. To do so, set the `enableTimestamps` option to `true`. Every `set` call will update the timestamp of a value, which can be retrieved using `getTimestamp(key)`.
+The DB can automatically keep track of the last time a key was written. To do so, set the `enableTimestamps` option to `true`. Every `set` call will then update the timestamp of a value, which can be retrieved using `getTimestamp(key)`. To opt out of this behavior for individual writes, pass `false` as the 3rd argument to `set`.
+
+```ts
+db.set("key", "value", false); // Don't update the timestamp
+```
+
+> **Note**
+> Recording timestamps decreases the DB throughput by ~10...30% depending on how it is used.
 
 ### Import / Export
 

@@ -1534,7 +1534,7 @@ describe("lib/db", () => {
 			expect(actual).toBe(content);
 		}
 
-		it("should be recorded and read", async () => {
+		it("should be recorded and can be read back", async () => {
 			mockFs({
 				[testFilename]: ``,
 			});
@@ -1554,6 +1554,27 @@ describe("lib/db", () => {
 
 			expect(db.getTimestamp("0")).toBe(0);
 			expect(db.getTimestamp("1")).toBe(1000);
+		});
+
+		it("should not be updated when the 3rd argument to `set()` is false", async () => {
+			mockFs({
+				[testFilename]: ``,
+			});
+
+			db = new JsonlDB(testFilename, {
+				enableTimestamps: true,
+			});
+			await db.open();
+
+			vi.useFakeTimers({
+				now: 0,
+			});
+			db.set("0", "0");
+			vi.advanceTimersByTime(1000);
+
+			db.set("0", "1", false);
+
+			expect(db.getTimestamp("0")).toBe(0);
 		});
 
 		it("should be stored in the db file", async () => {
