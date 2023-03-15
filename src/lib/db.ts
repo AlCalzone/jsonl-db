@@ -579,14 +579,20 @@ export class JsonlDB<V = unknown> {
 		return ret;
 	}
 
-	public set(key: string, value: V): this {
+	public set(key: string, value: V, updateTimestamp: boolean = true): this {
 		if (!this._isOpen) {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
 		if (this.options.enableTimestamps) {
-			const ts = Date.now();
-			this._timestamps.set(key, ts);
+			// If the timestamp should updated, use the current time, otherwise try to preserve the old one
+			let ts: number | undefined;
+			if (updateTimestamp) {
+				ts = Date.now();
+				this._timestamps.set(key, ts);
+			} else {
+				ts = this._timestamps.get(key);
+			}
 			this._journal.push(this.makeLazyWrite(key, value, ts));
 		} else {
 			this._journal.push(this.makeLazyWrite(key, value));
