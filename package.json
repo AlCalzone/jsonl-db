@@ -37,7 +37,7 @@
     "@alcalzone/release-script-plugin-license": "~3.5.9",
     "@commitlint/cli": "^17.3.0",
     "@commitlint/config-conventional": "^17.6.5",
-    "@tsconfig/node14": "^1.0.3",
+    "@tsconfig/node14": "^14.1.0",
     "@types/fs-extra": "^9.0.13",
     "@types/mock-fs": "^4.13.1",
     "@types/node": "^14.18.37",
