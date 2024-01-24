@@ -1,11 +1,25 @@
 import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
-import mockFs from "mock-fs";
+import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TestFS } from "../../test/testFs";
 import { JsonlDB } from "./db";
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
+
+async function retry(times: number, test: () => Promise<void>): Promise<void> {
+	for (let i = 0; i < times; i++) {
+		try {
+			await test();
+			return;
+		} catch (e) {
+			if (i === times - 1) {
+				throw e;
+			}
+		}
+	}
+}
 
 vi.mock("fs-extra", async () => {
 	const originalFS = (await vi.importActual<any>("fs-extra")).default;
@@ -217,9 +231,15 @@ describe("lib/db", () => {
 	});
 
 	describe("open()", () => {
+		let testFS: TestFS;
+		let testFSRoot: string;
 		beforeEach(async () => {
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+
 			try {
-				mockFs({
+				await testFS.remove();
+				await testFS.create({
 					yes:
 						// Final newline omitted on purpose
 						'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}',
@@ -238,30 +258,41 @@ describe("lib/db", () => {
 				debugger;
 			}
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			try {
+				await testFS.remove();
+			} catch (e) {
+				debugger;
+			}
+		});
 
 		it("sets the isOpen property to true", async () => {
-			const db = new JsonlDB("yes");
+			const db = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db.open();
 			expect(db.isOpen).toBe(true);
 			await db.close();
 		});
 
 		it("checks if the given file exists and creates it if it doesn't", async () => {
-			const db = new JsonlDB("no");
+			const db = new JsonlDB(path.join(testFSRoot, "no"));
 			await db.open();
 			await db.close();
 		});
 
 		it("also creates leading directories if they don't exist", async () => {
-			const db = new JsonlDB("this/path/does/not/exist");
+			const db = new JsonlDB(
+				path.join(testFSRoot, "this/path/does/not/exist"),
+			);
 			await db.open();
 			await db.close();
 		});
 
 		it("also creates leading directories for the lockfiles if they don't exist", async () => {
-			const lockfileDirectory = "this/path/does/not/exist/either";
-			const db = new JsonlDB("lockfile", {
+			const lockfileDirectory = path.join(
+				testFSRoot,
+				"this/path/does/not/exist/either",
+			);
+			const db = new JsonlDB(path.join(testFSRoot, "lockfile"), {
 				lockfileDirectory,
 			});
 			await db.open();
@@ -271,16 +302,16 @@ describe("lib/db", () => {
 		});
 
 		it("reads the file if it exists", async () => {
-			const db = new JsonlDB("yes");
+			const db = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db.open();
 			await db.close();
 		});
 
 		it("throws if another DB has opened the DB file at the same time", async () => {
-			const db1 = new JsonlDB("yes");
+			const db1 = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db1.open();
 
-			const db2 = new JsonlDB("yes");
+			const db2 = new JsonlDB(path.join(testFSRoot, "yes"));
 			try {
 				await db2.open();
 				throw new Error("it did not throw");
@@ -295,7 +326,7 @@ describe("lib/db", () => {
 		});
 
 		it("should contain the correct data", async () => {
-			const db = new JsonlDB("yes");
+			const db = new JsonlDB(path.join(testFSRoot, "yes"));
 			await db.open();
 
 			expect(db.size).toBe(1);
@@ -312,7 +343,7 @@ describe("lib/db", () => {
 		});
 
 		it("skips empty input lines", async () => {
-			const db = new JsonlDB("emptyLines");
+			const db = new JsonlDB(path.join(testFSRoot, "emptyLines"));
 			await db.open();
 
 			expect(db.has("key1")).toBe(true);
@@ -324,7 +355,7 @@ describe("lib/db", () => {
 		});
 
 		it("throws when the file contains invalid JSON", async () => {
-			const db = new JsonlDB("broken");
+			const db = new JsonlDB(path.join(testFSRoot, "broken"));
 			try {
 				await db.open();
 				throw new Error("it did not throw");
@@ -335,7 +366,7 @@ describe("lib/db", () => {
 		});
 
 		it("throws when the file contains invalid JSON (part 2)", async () => {
-			const db = new JsonlDB("broken2");
+			const db = new JsonlDB(path.join(testFSRoot, "broken2"));
 			try {
 				await db.open();
 				throw new Error("it did not throw");
@@ -346,7 +377,7 @@ describe("lib/db", () => {
 		});
 
 		it("throws when the file contains invalid JSON (part 3)", async () => {
-			const db = new JsonlDB("broken3");
+			const db = new JsonlDB(path.join(testFSRoot, "broken3"));
 			try {
 				await db.open();
 				throw new Error("it did not throw");
@@ -357,7 +388,7 @@ describe("lib/db", () => {
 		});
 
 		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true", async () => {
-			const db = new JsonlDB("broken", {
+			const db = new JsonlDB(path.join(testFSRoot, "broken"), {
 				ignoreReadErrors: true,
 			});
 			await db.open();
@@ -365,7 +396,7 @@ describe("lib/db", () => {
 		});
 
 		it("does not throw when the file contains invalid JSON and `ignoreReadErrors` is true (part 2)", async () => {
-			const db = new JsonlDB("broken2", {
+			const db = new JsonlDB(path.join(testFSRoot, "broken2"), {
 				ignoreReadErrors: true,
 			});
 			await db.open();
@@ -374,7 +405,7 @@ describe("lib/db", () => {
 
 		it("transforms each value using the valueReviver function if any is passed", async () => {
 			const reviver = vi.fn().mockReturnValue("eeee");
-			const db = new JsonlDB("reviver", {
+			const db = new JsonlDB(path.join(testFSRoot, "reviver"), {
 				reviver,
 			});
 			await db.open();
@@ -391,17 +422,25 @@ describe("lib/db", () => {
 
 	describe("clear()", () => {
 		const testFilename = "clear.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]:
 					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key1"}\n',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
@@ -417,7 +456,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.stat(testFilename)).resolves.toMatchObject({
+			await expect(fs.stat(testFilenameFull)).resolves.toMatchObject({
 				size: 0,
 			});
 		});
@@ -425,16 +464,24 @@ describe("lib/db", () => {
 
 	describe("delete()", () => {
 		const testFilename = "delete.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
@@ -450,7 +497,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			const fileContent = await fs.readFile(testFilename, "utf8");
+			const fileContent = await fs.readFile(testFilenameFull, "utf8");
 			expect(fileContent.endsWith(`{"k":"key2"}\n`)).toBe(true);
 		});
 
@@ -464,7 +511,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			const fileContent = await fs.readFile(testFilename, "utf8");
+			const fileContent = await fs.readFile(testFilenameFull, "utf8");
 			expect(fileContent.endsWith(`{"k":"key2"}\n{"k":"key1"}\n`)).toBe(
 				true,
 			);
@@ -477,7 +524,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key2"}\n`,
 			);
 		});
@@ -485,15 +532,23 @@ describe("lib/db", () => {
 
 	describe("set()", () => {
 		const testFilename = "set.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs();
-			db = new JsonlDB(testFilename);
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create();
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
@@ -508,7 +563,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"key","v":true}\n`,
 			);
 		});
@@ -521,7 +576,7 @@ describe("lib/db", () => {
 			// Force the stream to be flushed
 			await db.close();
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"key2","v":true}\n{"k":"key1","v":1000}\n{"k":"key3","v":""}\n`,
 			);
 		});
@@ -529,18 +584,27 @@ describe("lib/db", () => {
 
 	describe("importJson()", () => {
 		const testFilename = "import.jsonl";
-		const jsonFilename = "jsonFile";
+		let testFilenameFull: string;
+		let jsonFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			jsonFilenameFull = path.join(testFSRoot, "jsonFile");
+			await testFS.create({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
-				[jsonFilename]: '{"key3": 1, "key4": true}',
+				jsonFile: '{"key3": 1, "key4": true}',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("both versions throw when the DB is not open", async () => {
 			await db.close();
@@ -558,7 +622,7 @@ describe("lib/db", () => {
 			await db.close();
 
 			// The order changes because Object.entries reads the entries in a different order
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"1","v":1}
@@ -569,12 +633,12 @@ describe("lib/db", () => {
 		});
 
 		it("the file version asynchronously adds all keys and values to the database", async () => {
-			await db.importJson(jsonFilename);
+			await db.importJson(jsonFilenameFull);
 			// Force the stream to be flushed
 			await db.close();
 
 			// The order changes because Object.entries reads the entries in a different order
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"key3","v":1}
@@ -586,37 +650,44 @@ describe("lib/db", () => {
 
 	describe("exportJson()", () => {
 		const testFilename = "export.jsonl";
-		const jsonFilename = "jsonfile";
+		let testFilenameFull: string;
+		let jsonFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			jsonFilenameFull = path.join(testFSRoot, "jsonFile");
+			await testFS.create({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 				jsonFile: '{"key3": 1, "key4": true}',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 		afterEach(async () => {
 			if (db) await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
-			await expect(db.exportJson(jsonFilename)).rejects.toThrow();
+			await expect(db.exportJson(jsonFilenameFull)).rejects.toThrow();
 		});
 
 		it("overwrites the given file with the DB contents as valid JSON", async () => {
-			await db.exportJson(jsonFilename);
-			await expect(fs.readFile(jsonFilename, "utf8")).resolves.toBe(
+			await db.exportJson(jsonFilenameFull);
+			await expect(fs.readFile(jsonFilenameFull, "utf8")).resolves.toBe(
 				`{"key1":1,"key2":"2"}\n`,
 			);
 		});
 
 		it("honors the JSON formatting options", async () => {
-			await db.exportJson(jsonFilename, { spaces: "\t" });
-			await expect(fs.readFile(jsonFilename, "utf8")).resolves.toBe(
+			await db.exportJson(jsonFilenameFull, { spaces: "\t" });
+			await expect(fs.readFile(jsonFilenameFull, "utf8")).resolves.toBe(
 				`{
 	"key1": 1,
 	"key2": "2"
@@ -627,15 +698,23 @@ describe("lib/db", () => {
 
 	describe("close()", () => {
 		const testFilename = "close.jsonl";
+		let testFilenameFull: string;
 		// The basic functionality is tested in the other suites
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs();
-			db = new JsonlDB(testFilename);
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create();
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("may be called twice", async () => {
 			await db.close();
@@ -650,22 +729,28 @@ describe("lib/db", () => {
 
 	describe("dump()", () => {
 		const testFilename = "dump.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
 		let dumpdb: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: "",
 				[testFilename + ".dump"]: "",
 			});
-			db = new JsonlDB(testFilename);
-			dumpdb = new JsonlDB(testFilename + ".dump");
+			db = new JsonlDB(testFilenameFull);
+			dumpdb = new JsonlDB(testFilenameFull + ".dump");
 			await db.open();
 		});
 		afterEach(async () => {
 			await db.close();
 			await dumpdb.close();
-			mockFs.restore();
+			await testFS.remove();
 			mockAppendFileThrottle = 0;
 		});
 
@@ -734,18 +819,24 @@ describe("lib/db", () => {
 
 	describe("compress()", () => {
 		const testFilename = "compress.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 		afterEach(async () => {
 			await db.close();
-			mockFs.restore();
+			await testFS.remove();
 			mockMoveFileThrottle = 0;
 			mockAppendFileThrottle = 0;
 		});
@@ -756,15 +847,15 @@ describe("lib/db", () => {
 			db.set("key3", 3.5);
 
 			await db.compress();
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
-			await expect(fs.pathExists(testFilename + ".dump")).resolves.toBe(
-				false,
-			);
-			await expect(fs.pathExists(testFilename + ".bak")).resolves.toBe(
-				false,
-			);
+			await expect(
+				fs.pathExists(testFilenameFull + ".dump"),
+			).resolves.toBe(false);
+			await expect(
+				fs.pathExists(testFilenameFull + ".bak"),
+			).resolves.toBe(false);
 		});
 
 		it("after compresing, writing works as usual", async () => {
@@ -776,7 +867,7 @@ describe("lib/db", () => {
 			db.set("key2", 1);
 			// Force flush
 			await db.close();
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n{"k":"key2","v":1}\n',
 			);
 		});
@@ -790,7 +881,7 @@ describe("lib/db", () => {
 			await db.compress();
 			await closePromise;
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n{"k":"key3","v":3}\n{"k":"key2"}\n{"k":"key3","v":3.5}\n',
 			);
 		});
@@ -808,7 +899,7 @@ describe("lib/db", () => {
 			await db.compress();
 			await compressPromise;
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
 		});
@@ -866,20 +957,26 @@ describe("lib/db", () => {
 
 	describe("compress() regression test: backup file exists", () => {
 		const testFilename = "compress-with-bak.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: '{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 				[`${testFilename}.bak`]:
 					'{"k":"key1","v":1}\n{"k":"key2","v":"2"}\n',
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 		afterEach(async () => {
 			await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		it("does not crash", async () => {
@@ -890,10 +987,16 @@ describe("lib/db", () => {
 
 	describe("uncompressedSize", () => {
 		const testFilename = "uncompressedSize.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: `
 {"k":"key1","v":1}
 {"k":"key2","v":"2"}
@@ -904,12 +1007,12 @@ describe("lib/db", () => {
 {"k":"key3"}
 `,
 			});
-			db = new JsonlDB(testFilename);
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 		afterEach(async () => {
 			await db.close();
-			mockFs.restore();
+			await testFS.remove();
 			mockMoveFileThrottle = 0;
 		});
 
@@ -975,6 +1078,7 @@ describe("lib/db", () => {
 
 	describe("auto-compression", () => {
 		const testFilename = "autoCompress.jsonl";
+		let testFilenameFull: string;
 		const uncompressed = `{"k":"key1","v":1}
 {"k":"key2","v":"2"}
 {"k":"key3","v":3}
@@ -982,20 +1086,25 @@ describe("lib/db", () => {
 {"k":"key3","v":3.5}\n`;
 
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: `{"k":"key1","v":1}\n`,
 				openClose: uncompressed,
 			});
 		});
 		afterEach(async () => {
 			await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		it("triggers when uncompressedSize >= size * sizeFactor", async () => {
-			db = new JsonlDB(testFilename, {
+			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					sizeFactor: 4,
 				},
@@ -1007,15 +1116,15 @@ describe("lib/db", () => {
 			db.set("key1", 3);
 			await wait(25);
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.not.toBe(
-				'{"k":"key1","v":3}\n',
-			);
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":3}\n');
 
 			db.set("key1", 4);
 			// compress is async, so give it some time
 			await wait(100);
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":4}\n',
 			);
 
@@ -1023,36 +1132,38 @@ describe("lib/db", () => {
 		});
 
 		it("..., but only above the minimum size", async () => {
-			db = new JsonlDB(testFilename, {
-				autoCompress: {
-					sizeFactor: 4,
-					sizeFactorMinimumSize: 6,
-				},
+			await retry(5, async () => {
+				db = new JsonlDB(testFilenameFull, {
+					autoCompress: {
+						sizeFactor: 4,
+						sizeFactorMinimumSize: 6,
+					},
+				});
+				await db.open();
+
+				for (let i = 2; i <= 5; i++) {
+					db.set("key1", i);
+					await wait(75);
+				}
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.not.toBe('{"k":"key1","v":5}\n');
+
+				db.set("key1", 6);
+				// Wait a bit because compress is async
+				await wait(50);
+				// close the DB to make sure everything is flushed
+				await db.close();
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.toBe('{"k":"key1","v":6}\n');
 			});
-			await db.open();
-
-			for (let i = 2; i <= 5; i++) {
-				db.set("key1", i);
-				await wait(75);
-			}
-
-			await expect(fs.readFile(testFilename, "utf8")).resolves.not.toBe(
-				'{"k":"key1","v":5}\n',
-			);
-
-			db.set("key1", 6);
-			// Wait a bit because compress is async
-			await wait(50);
-			// close the DB to make sure everything is flushed
-			await db.close();
-
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
-				'{"k":"key1","v":6}\n',
-			);
 		}, 10000);
 
 		it("doesn't trigger when different keys are added", async () => {
-			db = new JsonlDB(testFilename, {
+			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					sizeFactor: 4,
 				},
@@ -1068,33 +1179,37 @@ describe("lib/db", () => {
 		});
 
 		it("triggers after intervalMs", async () => {
-			db = new JsonlDB(testFilename, {
-				autoCompress: {
-					intervalMs: 100,
-				},
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
+
+				db = new JsonlDB(testFilenameFull, {
+					autoCompress: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+
+				db.set("key1", 2);
+				await wait(25);
+				db.set("key1", 3);
+				await wait(25);
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.not.toBe('{"k":"key1","v":3}\n');
+
+				await wait(150);
+
+				await expect(
+					fs.readFile(testFilenameFull, "utf8"),
+				).resolves.toBe('{"k":"key1","v":3}\n');
+
+				await db.close();
 			});
-			await db.open();
-
-			db.set("key1", 2);
-			await wait(25);
-			db.set("key1", 3);
-			await wait(25);
-
-			await expect(fs.readFile(testFilename, "utf8")).resolves.not.toBe(
-				'{"k":"key1","v":3}\n',
-			);
-
-			await wait(75);
-
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
-				'{"k":"key1","v":3}\n',
-			);
-
-			await db.close();
 		});
 
 		it("..., but only if there were at least intervalMinChanges changes", async () => {
-			db = new JsonlDB(testFilename, {
+			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					intervalMs: 100,
 					intervalMinChanges: 2,
@@ -1104,13 +1219,13 @@ describe("lib/db", () => {
 
 			db.set("key1", 2);
 			await wait(110);
-			await expect(fs.readFile(testFilename, "utf8")).resolves.not.toBe(
-				'{"k":"key1","v":2}\n',
-			);
+			await expect(
+				fs.readFile(testFilenameFull, "utf8"),
+			).resolves.not.toBe('{"k":"key1","v":2}\n');
 
 			db.set("key1", 3);
 			await wait(110);
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":3}\n',
 			);
 
@@ -1118,8 +1233,8 @@ describe("lib/db", () => {
 		});
 
 		it("compresses after opening when onOpen is true", async () => {
-			const testFilename = "openClose";
-			db = new JsonlDB(testFilename, {
+			const testFilenameFull = path.join(testFSRoot, "openClose");
+			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					onOpen: true,
 				},
@@ -1129,20 +1244,20 @@ describe("lib/db", () => {
 			// expect(compressSpy).toBeCalledTimes(1);
 			await db.open();
 			await wait(25);
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
 
 			db.set("key3", 1);
 			await db.close();
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n{"k":"key3","v":1}\n',
 			);
 		});
 
 		it("compresses during close when onClose is true", async () => {
-			const testFilename = "openClose";
-			db = new JsonlDB(testFilename, {
+			const testFilenameFull = path.join(testFSRoot, "openClose");
+			db = new JsonlDB(testFilenameFull, {
 				autoCompress: {
 					onClose: true,
 				},
@@ -1150,13 +1265,13 @@ describe("lib/db", () => {
 			// Cannot use this, since close calls compressInternal
 			// expect(compressSpy).toBeCalledTimes(1);
 			await db.open();
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				uncompressed,
 			);
 
 			await db.close();
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
 		});
@@ -1164,143 +1279,171 @@ describe("lib/db", () => {
 
 	describe("throttling FS", () => {
 		const testFilename = "throttled.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs({
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create({
 				[testFilename]: ``,
 			});
 		});
 		afterEach(async () => {
 			if (db) await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		async function assertFileContent(content: string): Promise<void> {
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				content,
 			);
 		}
 
 		it("changes are only written after intervalMs has passed", async () => {
-			db = new JsonlDB(testFilename, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
-			db.clear();
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			// Trigger at least one scheduled cork before the first write
-			await wait(110);
-			await assertFileContent("");
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+				db.clear();
 
-			db.set("1", 1);
-
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(50);
-			for (let i = 2; i <= 10; i++) {
-				db.set(i.toString(), i);
+				// Trigger at least one scheduled cork before the first write
+				await wait(110);
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Give it a little more time than necessary
-			await wait(75);
-			await assertFileContent(expected);
+				db.set("1", 1);
+
+				let expected = `{"k":"1","v":1}\n`;
+				await assertFileContent("");
+
+				await wait(50);
+				for (let i = 2; i <= 10; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
+
+				// Give it a little more time than necessary
+				await wait(75);
+				await assertFileContent(expected);
+			});
 		});
 
 		it("or the maximum buffer size was reached", async () => {
-			db = new JsonlDB(testFilename, {
-				throttleFS: {
-					intervalMs: 100,
-					maxBufferedCommands: 5,
-				},
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
+
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+						maxBufferedCommands: 5,
+					},
+				});
+				await db.open();
+
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
+				await assertFileContent("");
+
+				await wait(50);
+				for (let i = 2; i <= 6; i++) {
+					db.set(i.toString(), i);
+					expected += `{"k":"${i}","v":${i}}\n`;
+					if (i <= 5) await assertFileContent("");
+				}
+
+				// Give it a little time to write
+				await wait(40);
+				await assertFileContent(expected);
 			});
-			await db.open();
-
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
-
-			await wait(50);
-			for (let i = 2; i <= 6; i++) {
-				db.set(i.toString(), i);
-				expected += `{"k":"${i}","v":${i}}\n`;
-				if (i <= 5) await assertFileContent("");
-			}
-
-			// Give it a little time to write
-			await wait(40);
-			await assertFileContent(expected);
 		});
 
 		it("works after compressing", async () => {
-			db = new JsonlDB(testFilename, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
-			await db.compress();
-			await wait(15);
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
+				await db.compress();
+				await wait(15);
 
-			await wait(15);
-			for (let i = 2; i <= 100; i++) {
-				db.set(i.toString(), i);
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Give it a little more time than necessary
-			await wait(100);
-			await assertFileContent(expected);
+				await wait(15);
+				for (let i = 2; i <= 100; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
+
+				// Give it a little more time than necessary
+				await wait(100);
+				await assertFileContent(expected);
+			});
 		});
 
 		it("should still flush the buffer on close", async () => {
-			db = new JsonlDB(testFilename, {
-				throttleFS: {
-					intervalMs: 100,
-				},
-			});
-			await db.open();
+			await retry(3, async () => {
+				// timeout-based tests are flaky. retry to be sure
 
-			db.set("1", 1);
-			let expected = `{"k":"1","v":1}\n`;
-			await assertFileContent("");
+				db = new JsonlDB(testFilenameFull, {
+					throttleFS: {
+						intervalMs: 100,
+					},
+				});
+				await db.open();
 
-			await wait(50);
-			for (let i = 2; i <= 100; i++) {
-				db.set(i.toString(), i);
+				db.set("1", 1);
+				let expected = `{"k":"1","v":1}\n`;
 				await assertFileContent("");
-				expected += `{"k":"${i}","v":${i}}\n`;
-			}
 
-			// Close the db before the next forced flush
-			await db.close();
+				await wait(50);
+				for (let i = 2; i <= 100; i++) {
+					db.set(i.toString(), i);
+					await assertFileContent("");
+					expected += `{"k":"${i}","v":${i}}\n`;
+				}
 
-			await assertFileContent(expected);
+				// Close the db before the next forced flush
+				await db.close();
+
+				await assertFileContent(expected);
+			});
 		});
 	});
 
 	describe("consistency checks", () => {
 		const testFilename = "checks.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs();
-			db = new JsonlDB(testFilename);
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create();
+			db = new JsonlDB(testFilenameFull);
 			await db.open();
 		});
 		afterEach(async () => {
 			if (db) await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		it("opening a complex log restores the same structure as expected", async () => {
@@ -1354,16 +1497,24 @@ describe("lib/db", () => {
 
 	describe("custom serializer", () => {
 		const testFilename = "serializer.jsonl";
+		let testFilenameFull: string;
 		let db: JsonlDB;
+		let testFS: TestFS;
+		let testFSRoot: string;
 
 		beforeEach(async () => {
-			mockFs();
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+			await testFS.create();
 		});
-		afterEach(mockFs.restore);
+		afterEach(async () => {
+			await testFS.remove();
+		});
 
 		it("before saving, values are transformed using the serializer function if any is passed", async () => {
 			const serializer = vi.fn().mockReturnValue("ffff");
-			db = new JsonlDB(testFilename, { serializer });
+			db = new JsonlDB(testFilenameFull, { serializer });
 			await db.open();
 
 			const map = new Map<any, any>([
@@ -1375,36 +1526,43 @@ describe("lib/db", () => {
 
 			await wait(10);
 
-			await expect(fs.readFile(testFilename, "utf8")).resolves.toBe(
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				`{"k":"test","v":"ffff"}\n`,
 			);
 		});
 	});
 
 	describe("crash recovery", () => {
+		let testFS: TestFS;
+		let testFSRoot: string;
 		let db: JsonlDB;
 		const testFilename = "recovery.jsonl";
+		let testFilenameFull: string;
 
-		beforeEach(async () => {});
+		beforeEach(async () => {
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+		});
 
 		afterEach(async () => {
 			if (db) await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		async function assertCleanedUp() {
 			// The other files should have been cleaned up
-			await expect(fs.pathExists(testFilename)).resolves.toBe(true);
-			await expect(fs.pathExists(testFilename + ".bak")).resolves.toBe(
-				false,
-			);
-			await expect(fs.pathExists(testFilename + ".dump")).resolves.toBe(
-				false,
-			);
+			await expect(fs.pathExists(testFilenameFull)).resolves.toBe(true);
+			await expect(
+				fs.pathExists(testFilenameFull + ".bak"),
+			).resolves.toBe(false);
+			await expect(
+				fs.pathExists(testFilenameFull + ".dump"),
+			).resolves.toBe(false);
 		}
 
 		it("db truncated, .bak ok -> use .bak", async () => {
-			mockFs({
+			await testFS.create({
 				// Original, uncompressed db in the .bak file
 				[testFilename + ".bak"]: `
 {"k":"key1","v":1}
@@ -1420,7 +1578,7 @@ describe("lib/db", () => {
 {"k":"key3","v":3}`,
 			});
 
-			const db = new JsonlDB(testFilename);
+			const db = new JsonlDB(testFilenameFull);
 			await db.open();
 
 			expect(db.size).toBe(2);
@@ -1435,7 +1593,7 @@ describe("lib/db", () => {
 		});
 
 		it("db missing, .bak ok -> use .bak", async () => {
-			mockFs({
+			await testFS.create({
 				// Original, uncompressed db in the .bak file
 				[testFilename + ".bak"]: `
 {"k":"key1","v":1}
@@ -1449,7 +1607,7 @@ describe("lib/db", () => {
 {"k":"key3","v":3}`,
 			});
 
-			const db = new JsonlDB(testFilename);
+			const db = new JsonlDB(testFilenameFull);
 			await db.open();
 
 			expect(db.size).toBe(2);
@@ -1465,7 +1623,7 @@ describe("lib/db", () => {
 		});
 
 		it("db truncated, .bak truncated, .dump ok -> use .dump", async () => {
-			mockFs({
+			await testFS.create({
 				// empty, broken .bak file
 				[testFilename + ".bak"]: "",
 				// empty, broken db file
@@ -1476,7 +1634,7 @@ describe("lib/db", () => {
 {"k":"key3","v":3}`,
 			});
 
-			const db = new JsonlDB(testFilename);
+			const db = new JsonlDB(testFilenameFull);
 			await db.open();
 
 			expect(db.size).toBe(2);
@@ -1492,7 +1650,7 @@ describe("lib/db", () => {
 		});
 
 		it("db truncated, .bak missing, .dump ok -> use .dump", async () => {
-			mockFs({
+			await testFS.create({
 				// empty, broken db file
 				[testFilename]: "",
 				// (probably) half-complete .dump file, but better than nothing
@@ -1501,7 +1659,7 @@ describe("lib/db", () => {
 {"k":"key3","v":3}`,
 			});
 
-			const db = new JsonlDB(testFilename);
+			const db = new JsonlDB(testFilenameFull);
 			await db.open();
 
 			expect(db.size).toBe(2);
@@ -1518,142 +1676,163 @@ describe("lib/db", () => {
 	});
 
 	describe("timestamps", () => {
+		let testFS: TestFS;
+		let testFSRoot: string;
 		let db: JsonlDB;
 		const testFilename = "timestamps.jsonl";
+		let testFilenameFull: string;
 
-		beforeEach(async () => {});
+		beforeEach(async () => {
+			testFS = new TestFS();
+			testFSRoot = await testFS.getRoot();
+			testFilenameFull = path.join(testFSRoot, testFilename);
+		});
 
 		afterEach(async () => {
 			vi.useRealTimers();
 			if (db) await db.close();
-			mockFs.restore();
+			await testFS.remove();
 		});
 
 		async function assertFileContent(content: string): Promise<void> {
-			const actual = await fs.readFile(testFilename, "utf8");
-			expect(actual).toBe(content);
+			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
+				content,
+			);
 		}
 
 		it("should be recorded and can be read back", async () => {
-			mockFs({
-				[testFilename]: ``,
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: ``,
+				});
+
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
+
+				vi.useFakeTimers({
+					now: 0,
+				});
+				db.set("0", "0");
+				vi.advanceTimersByTime(1000);
+
+				db.set("1", "1");
+
+				expect(db.getTimestamp("0")).toBe(0);
+				expect(db.getTimestamp("1")).toBe(1000);
 			});
-
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
-
-			vi.useFakeTimers({
-				now: 0,
-			});
-			db.set("0", "0");
-			vi.advanceTimersByTime(1000);
-
-			db.set("1", "1");
-
-			expect(db.getTimestamp("0")).toBe(0);
-			expect(db.getTimestamp("1")).toBe(1000);
 		});
 
 		it("should not be updated when the 3rd argument to `set()` is false", async () => {
-			mockFs({
-				[testFilename]: ``,
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: ``,
+				});
+
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
+
+				vi.useFakeTimers({
+					now: 0,
+				});
+				db.set("0", "0");
+				vi.advanceTimersByTime(1000);
+
+				db.set("0", "1", false);
+
+				expect(db.getTimestamp("0")).toBe(0);
 			});
-
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
-
-			vi.useFakeTimers({
-				now: 0,
-			});
-			db.set("0", "0");
-			vi.advanceTimersByTime(1000);
-
-			db.set("0", "1", false);
-
-			expect(db.getTimestamp("0")).toBe(0);
 		});
 
 		it("should be stored in the db file", async () => {
-			mockFs({
-				[testFilename]: ``,
-			});
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: ``,
+				});
+				console.log(testFilenameFull);
 
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
 
-			vi.useFakeTimers({
-				now: 0,
-			});
-			db.set("0", "0");
-			vi.advanceTimersByTime(1000);
+				vi.useFakeTimers({
+					now: 0,
+				});
+				db.set("0", "0");
+				vi.advanceTimersByTime(1000);
 
-			db.set("1", "1");
+				db.set("1", "1");
 
-			vi.useRealTimers();
-			await wait(100);
+				vi.useRealTimers();
+				await wait(100);
 
-			assertFileContent(
-				`{"k":"0","v":"0","ts":0}
+				await assertFileContent(
+					`{"k":"0","v":"0","ts":0}
 {"k":"1","v":"1","ts":1000}
 `,
-			);
-		});
+				);
+			});
+		}, 120000);
 
 		it("should be parsed from the db file", async () => {
-			mockFs({
-				[testFilename]: `
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: `
 {"k":"key1","v":1,"ts":1}
 {"k":"key2","v":"2","ts":2}
 {"k":"key3","v":3}
 `,
-			});
+				});
 
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
 
-			expect(db.getTimestamp("key1")).toBe(1);
-			expect(db.getTimestamp("key2")).toBe(2);
-			expect(db.getTimestamp("key3")).toBe(undefined);
+				expect(db.getTimestamp("key1")).toBe(1);
+				expect(db.getTimestamp("key2")).toBe(2);
+				expect(db.getTimestamp("key3")).toBe(undefined);
+			});
 		});
 
 		it("should be undefined when not present in the db file", async () => {
-			mockFs({
-				[testFilename]: `
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: `
 {"k":"key1","v":1}
 {"k":"key3","v":3}`,
-			});
+				});
 
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
 
-			expect(db.getTimestamp("key1")).toBe(undefined);
-			expect(db.getTimestamp("key3")).toBe(undefined);
+				expect(db.getTimestamp("key1")).toBe(undefined);
+				expect(db.getTimestamp("key3")).toBe(undefined);
+			});
 		});
 
 		it("deleting a key should delete the timestamp aswell", async () => {
-			mockFs({
-				[testFilename]: ``,
-			});
+			await retry(3, async () => {
+				await testFS.create({
+					[testFilename]: ``,
+				});
 
-			db = new JsonlDB(testFilename, {
-				enableTimestamps: true,
-			});
-			await db.open();
+				db = new JsonlDB(testFilenameFull, {
+					enableTimestamps: true,
+				});
+				await db.open();
 
-			db.set("test", true);
-			expect(db.getTimestamp("test")).not.toBe(undefined);
-			db.delete("test");
-			expect(db.getTimestamp("test")).toBe(undefined);
+				db.set("test", true);
+				expect(db.getTimestamp("test")).not.toBe(undefined);
+				db.delete("test");
+				expect(db.getTimestamp("test")).toBe(undefined);
+			});
 		});
 	});
 });
