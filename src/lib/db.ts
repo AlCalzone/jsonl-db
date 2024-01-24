@@ -8,6 +8,7 @@ import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as readline from "readline";
+import { Signal } from "./signal";
 
 export interface JsonlDBOptions<V> {
 	/**
@@ -137,13 +138,17 @@ type LazyEntry<V = unknown> = (
 };
 
 type PersistenceTask =
+	// The DB is stopped, perform cleanup
 	| { type: "stop" }
-	| { type: "none" }
+	// Used only in the persistence thread and indicates that a write should be performed
+	| { type: "write" }
+	// The DB should be dumped to a file
 	| {
 			type: "dump";
 			filename: string;
 			done: DeferredPromise<void>;
 	  }
+	// The DB should be compressed
 	| {
 			type: "compress";
 			done: DeferredPromise<void>;
@@ -299,19 +304,76 @@ export class JsonlDB<V = unknown> {
 	}
 
 	private _changesSinceLastCompress: number = 0;
+	private _compressBySizeThreshold: number = Number.POSITIVE_INFINITY;
+	// Signals that the conditions to compress the DB by size are fulfilled
+	private _compressBySizeNeeded = new Signal();
+	// Signals that the minimum number of changes to automatically compress were exceeded
+	private _compressIntervalMinChangesExceeded = new Signal();
+	// Signals that the next change may immediately trigger a write to disk
+	private _writeIntervalElapsed = false;
+	// Signals that the journal has exceeded the maximum buffered commands
+	// or that the journal contains entries that may be written to disk immediately
+	private _journalFlushable = new Signal();
+
+	private updateCompressBySizeThreshold(): void {
+		if (!this.options.autoCompress) return;
+		if (!this.options.autoCompress.sizeFactor) return;
+		const {
+			sizeFactor = Number.POSITIVE_INFINITY,
+			sizeFactorMinimumSize = 0,
+		} = this.options.autoCompress;
+
+		this._compressBySizeThreshold = Math.max(
+			sizeFactorMinimumSize,
+			sizeFactor * this.size,
+		);
+	}
+
+	private triggerJournalFlush(): void {
+		console.log(
+			`triggerJournalFlush, intervalMs = ${
+				this.options.throttleFS?.intervalMs
+			}, intervalElapsed = ${
+				this._writeIntervalElapsed
+			}, exceeded buffer = ${this.exceededMaxBufferedCommands()}, journal length = ${
+				this._journal.length
+			}`,
+		);
+		// Trigger a flush...
+		if (
+			// ... immediately if writing isn't throttled
+			!this.options.throttleFS?.intervalMs ||
+			// ... immediately if the timer elapsed
+			this._writeIntervalElapsed ||
+			// ... or the maximum buffered commands were exceeded
+			this.exceededMaxBufferedCommands()
+		) {
+			this._journalFlushable.set();
+		}
+	}
 
 	private _isOpen: boolean = false;
 	public get isOpen(): boolean {
 		return this._isOpen;
 	}
 
+	// Resolves when the persistence thread ends
 	private _persistencePromise: Promise<void> | undefined;
+	// An array of tasks to be handled by the persistence thread
 	private _persistenceTasks: PersistenceTask[] = [];
+	// Indicates to the persistence thread that there is a pending task
+	private _persistenceTaskSignal = new Signal();
+
 	private _journal: LazyEntry<V>[] = [];
 	private _fd: number | undefined;
 
 	private drainJournal(): LazyEntry<V>[] {
 		return this._journal.splice(0, this._journal.length);
+	}
+
+	private pushPersistenceTask(task: PersistenceTask): void {
+		this._persistenceTasks.push(task);
+		this._persistenceTaskSignal.set();
 	}
 
 	private _openPromise: DeferredPromise<void> | undefined;
@@ -421,6 +483,8 @@ export class JsonlDB<V = unknown> {
 			await fs.close(this._fd);
 			this._fd = undefined;
 		}
+
+		this.updateCompressBySizeThreshold();
 
 		// Start background persistence thread
 		this._persistencePromise = this.persistenceThread();
@@ -575,17 +639,21 @@ export class JsonlDB<V = unknown> {
 			// Something was deleted
 			this._journal.push(this.makeLazyDelete(key));
 			this._timestamps.delete(key);
+
+			this.updateCompressBySizeThreshold();
+			this.triggerJournalFlush();
 		}
 		return ret;
 	}
 
 	public set(key: string, value: V, updateTimestamp: boolean = true): this {
+		console.log("set", key, value);
 		if (!this._isOpen) {
 			throw new Error("The database is not open!");
 		}
 		this._db.set(key, value);
 		if (this.options.enableTimestamps) {
-			// If the timestamp should updated, use the current time, otherwise try to preserve the old one
+			// If the timestamp should be updated, use the current time, otherwise try to preserve the old one
 			let ts: number | undefined;
 			if (updateTimestamp) {
 				ts = Date.now();
@@ -597,6 +665,10 @@ export class JsonlDB<V = unknown> {
 		} else {
 			this._journal.push(this.makeLazyWrite(key, value));
 		}
+
+		this.updateCompressBySizeThreshold();
+		this.triggerJournalFlush();
+
 		return this;
 	}
 
@@ -626,6 +698,9 @@ export class JsonlDB<V = unknown> {
 			this._db.set(key, value);
 			this._journal.push(this.makeLazyWrite(key, value));
 		}
+
+		this.updateCompressBySizeThreshold();
+		this.triggerJournalFlush();
 	}
 
 	public async exportJson(
@@ -752,7 +827,7 @@ export class JsonlDB<V = unknown> {
 		if (!this._isOpen) return;
 
 		const done = createDeferredPromise();
-		this._persistenceTasks.push({
+		this.pushPersistenceTask({
 			type: "dump",
 			filename: targetFilename,
 			done,
@@ -766,18 +841,25 @@ export class JsonlDB<V = unknown> {
 		}
 	}
 
-	private needToCompressBySize(): boolean {
-		const {
-			sizeFactor = Number.POSITIVE_INFINITY,
-			sizeFactorMinimumSize = 0,
-		} = this.options.autoCompress ?? {};
-		if (
-			this._uncompressedSize >= sizeFactorMinimumSize &&
-			this._uncompressedSize >= sizeFactor * this.size
-		) {
-			return true;
+	private exceededMaxBufferedCommands(): boolean {
+		const maxBufferedCommands =
+			this.options.throttleFS?.maxBufferedCommands;
+		if (maxBufferedCommands == undefined) {
+			return false;
+		} else {
+			return (
+				this._journal.length > 0 &&
+				this._journal.length > maxBufferedCommands
+			);
 		}
-		return false;
+	}
+
+	private needToCompressBySize(): boolean {
+		if (!this._isOpen) return false;
+		console.log(
+			`uncompressedSize = ${this.uncompressedSize}, threshold = ${this._compressBySizeThreshold}, size = ${this.size}`,
+		);
+		return this._uncompressedSize >= this._compressBySizeThreshold;
 	}
 
 	private needToCompressByTime(lastCompress: number): boolean {
@@ -793,50 +875,124 @@ export class JsonlDB<V = unknown> {
 	}
 
 	private async persistenceThread(): Promise<void> {
+		const compressInterval = this.options.autoCompress?.intervalMs;
+		const throttleInterval = this.options.throttleFS?.intervalMs ?? 0;
+
 		// Keep track of the write accesses and compression attempts
 		let lastWrite = Date.now();
 		let lastCompress = Date.now();
-		const throttleInterval = this.options.throttleFS?.intervalMs ?? 0;
-		const maxBufferedCommands =
-			this.options.throttleFS?.maxBufferedCommands ??
-			Number.POSITIVE_INFINITY;
 
 		// Open the file for appending and reading
 		this._fd = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
 
-		const sleepDuration = 20; // ms
-
 		while (true) {
+			const now = Date.now();
+			// TODO: Gameplan to avoid the busy loop:
+			// - compressing by time should be primarily be indicated by the timer elapsing
+			// - compressing by size should be indicated from the outside by a "trigger" task
+			// - writing to disk should be indicated by either...
+			//    - the timer elapsing
+			//    - the stop task
+			//    - or a "trigger" task from the outside after exceeding the command buffer
+
+			let compressByTimeSleepDuration: number | undefined;
+			if (compressInterval) {
+				const nextCompress = lastCompress + compressInterval;
+				if (nextCompress > now) {
+					compressByTimeSleepDuration = nextCompress - now;
+				} else {
+					// Compress now
+					compressByTimeSleepDuration = 0;
+				}
+			}
+
+			let throttledWriteSleepDuration: number | undefined;
+			if (throttleInterval) {
+				const nextWrite = lastWrite + throttleInterval;
+				if (nextWrite > now) {
+					throttledWriteSleepDuration = nextWrite - now;
+				} else if (this._journal.length > 0) {
+					// Write now
+					throttledWriteSleepDuration = 0;
+				} else {
+					// Indicate to the outside that the next journal entry
+					// should cause a write/trigger
+					this._writeIntervalElapsed = true;
+				}
+			} else if (this._journal.length > 0) {
+				// Not throttled, write immediately
+				throttledWriteSleepDuration = 0;
+			}
+
 			// Figure out what to do
+			type Input = "flush journal" | "write" | "compress" | "task";
+			// We do this in two steps, as we only want to react to a single action
+			const input = (await Promise.race(
+				[
+					// The journal has exceeded the maximum buffered commands
+					// and needs to be written to disk
+					this._journalFlushable.then(() => "flush journal" as const),
+
+					// The timer to flush the journal to disk has elapsed
+					throttledWriteSleepDuration != undefined &&
+						wait(throttledWriteSleepDuration, true).then(
+							() => "write" as const,
+						),
+
+					// The timer to compress by time has elapsed
+					compressByTimeSleepDuration != undefined &&
+						wait(compressByTimeSleepDuration, true).then(
+							() => "compress" as const,
+							// FIXME: Consider intervalMinChanges
+						),
+
+					this._compressBySizeNeeded.then(() => "compress" as const),
+
+					// A task was received from the outside
+					this._persistenceTaskSignal.then(() => "task" as const),
+				].filter((p) => !!p),
+			)) as Input;
+
 			let task: PersistenceTask | undefined;
-			if (
-				this.needToCompressBySize() ||
-				this.needToCompressByTime(lastCompress)
-			) {
+			if (input === "flush journal") {
+				console.log("journal flushable");
+				task = { type: "write" };
+			} else if (input === "write") {
+				console.log("throttle sleep elapsed");
+				task = { type: "write" };
+			} else if (input === "compress") {
+				console.log("compress sleep elapsed");
 				// Need to compress
-				task = { type: "compress", done: createDeferredPromise() };
+				task = {
+					type: "compress",
+					done: createDeferredPromise(),
+				};
 				// but catch errors!
 				// eslint-disable-next-line @typescript-eslint/no-empty-function
 				task.done.catch(() => {});
-			} else {
-				// Take the first tasks of from the task queue
-				task = this._persistenceTasks.shift() ?? { type: "none" };
+			} else if (input === "task") {
+				task = this._persistenceTasks.shift();
+				console.log("received persistence task", task?.type);
+				// Reset the signal when there are no more tasks
+				if (!task) this._persistenceTaskSignal.reset();
 			}
 
+			console.log("task = ", task);
+
+			if (!task) continue;
+
 			let isStopCmd = false;
+			console.log("task.type = ", task.type);
 			switch (task.type) {
 				case "stop":
 					isStopCmd = true;
 				// fall through
-				case "none": {
+				case "write": {
 					// Write to disk if necessary
 
-					const shouldWrite =
-						this._journal.length > 0 &&
-						(isStopCmd ||
-							Date.now() - lastWrite > throttleInterval ||
-							this._journal.length > maxBufferedCommands);
+					// Only write if there are actually entries to write
+					const shouldWrite = this._journal.length > 0;
 
 					if (shouldWrite) {
 						// Drain the journal
@@ -852,6 +1008,11 @@ export class JsonlDB<V = unknown> {
 						await fs.close(this._fd);
 						this._fd = undefined;
 						return;
+					} else {
+						// Since we wrote something, the uncompressed size may have changed
+						if (this.needToCompressBySize()) {
+							this._compressBySizeNeeded.set();
+						}
 					}
 					break;
 				}
@@ -859,6 +1020,7 @@ export class JsonlDB<V = unknown> {
 				case "dump": {
 					try {
 						await this.dumpInternal(task.filename, false);
+						console.log("dump done");
 						task.done.resolve();
 					} catch (e) {
 						task.done.reject(e);
@@ -877,8 +1039,6 @@ export class JsonlDB<V = unknown> {
 					break;
 				}
 			}
-
-			await wait(sleepDuration);
 		}
 	}
 
@@ -930,6 +1090,10 @@ export class JsonlDB<V = unknown> {
 		await fs.appendFile(fd, serialized);
 		await fs.fsync(fd);
 
+		// Reset the signals related to writing the journal
+		this._journalFlushable.reset();
+		this._writeIntervalElapsed = false;
+
 		return fd;
 	}
 
@@ -967,6 +1131,8 @@ export class JsonlDB<V = unknown> {
 		// Remember the new statistics
 		this._uncompressedSize = this._db.size;
 		this._changesSinceLastCompress = 0;
+		this._compressBySizeNeeded.reset();
+		this.updateCompressBySizeThreshold();
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
@@ -986,7 +1152,7 @@ export class JsonlDB<V = unknown> {
 		if (task) return task.done;
 
 		const done = createDeferredPromise<void>();
-		this._persistenceTasks.push({
+		this.pushPersistenceTask({
 			type: "compress",
 			done,
 		});
@@ -1004,19 +1170,22 @@ export class JsonlDB<V = unknown> {
 		if (!this._isOpen) return;
 		this._isOpen = false;
 
+		console.log("close");
+
 		// Compress on close if required
 		if (this.options.autoCompress?.onClose) {
 			await this.compressInternal();
 		}
 
 		// Stop persistence thread and wait for it to finish
-		this._persistenceTasks.push({ type: "stop" });
+		this.pushPersistenceTask({ type: "stop" });
 		await this._persistencePromise;
 
 		// Reset all variables
 		this._db.clear();
 		this._changesSinceLastCompress = 0;
 		this._uncompressedSize = Number.NaN;
+		this.updateCompressBySizeThreshold();
 
 		// Free the lock
 		try {

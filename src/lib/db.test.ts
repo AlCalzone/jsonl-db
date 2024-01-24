@@ -1132,7 +1132,7 @@ describe("lib/db", () => {
 		});
 
 		it("..., but only above the minimum size", async () => {
-			await retry(5, async () => {
+			await retry(1, async () => {
 				db = new JsonlDB(testFilenameFull, {
 					autoCompress: {
 						sizeFactor: 4,
@@ -1776,7 +1776,7 @@ describe("lib/db", () => {
 `,
 				);
 			});
-		}, 120000);
+		});
 
 		it("should be parsed from the db file", async () => {
 			await retry(3, async () => {
