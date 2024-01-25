@@ -308,7 +308,7 @@ export class JsonlDB<V = unknown> {
 	// Signals that the conditions to compress the DB by size are fulfilled
 	private _compressBySizeNeeded = new Signal();
 	// Signals that the minimum number of changes to automatically compress were exceeded
-	private _compressIntervalMinChangesExceeded = new Signal();
+	private _compressIntervalMinChangesExceeded = false;
 	// Signals that the next change may immediately trigger a write to disk
 	private _writeIntervalElapsed = false;
 	// Signals that the journal has exceeded the maximum buffered commands
@@ -888,20 +888,15 @@ export class JsonlDB<V = unknown> {
 
 		while (true) {
 			const now = Date.now();
-			// TODO: Gameplan to avoid the busy loop:
-			// - compressing by time should be primarily be indicated by the timer elapsing
-			// - compressing by size should be indicated from the outside by a "trigger" task
-			// - writing to disk should be indicated by either...
-			//    - the timer elapsing
-			//    - the stop task
-			//    - or a "trigger" task from the outside after exceeding the command buffer
 
+			// Figure out how long the timeouts should be.
+			// > 0 means wait, 0 means do it now, undefined means don't do it
 			let compressByTimeSleepDuration: number | undefined;
 			if (compressInterval) {
 				const nextCompress = lastCompress + compressInterval;
 				if (nextCompress > now) {
 					compressByTimeSleepDuration = nextCompress - now;
-				} else {
+				} else if (this._compressIntervalMinChangesExceeded) {
 					// Compress now
 					compressByTimeSleepDuration = 0;
 				}
@@ -942,10 +937,11 @@ export class JsonlDB<V = unknown> {
 
 					// The timer to compress by time has elapsed
 					compressByTimeSleepDuration != undefined &&
-						wait(compressByTimeSleepDuration, true).then(
-							() => "compress" as const,
-							// FIXME: Consider intervalMinChanges
-						),
+						wait(compressByTimeSleepDuration, true).then(() => {
+							if (this._compressIntervalMinChangesExceeded) {
+								return "compress" as const;
+							}
+						}),
 
 					this._compressBySizeNeeded.then(() => "compress" as const),
 
@@ -1013,6 +1009,11 @@ export class JsonlDB<V = unknown> {
 						if (this.needToCompressBySize()) {
 							this._compressBySizeNeeded.set();
 						}
+						// Also we might have surpassed the change threshold to trigger a compression
+						this._compressIntervalMinChangesExceeded =
+							this._changesSinceLastCompress >=
+							(this.options.autoCompress?.intervalMinChanges ??
+								1);
 					}
 					break;
 				}
@@ -1074,6 +1075,7 @@ export class JsonlDB<V = unknown> {
 			truncate = false;
 			if (updateStatistics) {
 				// Now the DB size is effectively 0 and we have no "uncompressed" changes pending
+				console.log("uncompressedSize = 0 during write");
 				this._uncompressedSize = 0;
 				this._changesSinceLastCompress = 0;
 			}
@@ -1083,6 +1085,9 @@ export class JsonlDB<V = unknown> {
 			serialized += entry.serialize() + "\n";
 			if (updateStatistics) {
 				this._uncompressedSize++;
+				console.log(
+					`increment uncompressedSize during write: ${this._uncompressedSize}`,
+				);
 				this._changesSinceLastCompress++;
 			}
 		}
@@ -1112,6 +1117,13 @@ export class JsonlDB<V = unknown> {
 		// 2. Create a dump, draining the journal to avoid duplicate writes
 		await this.dumpInternal(this.dumpFilename, true);
 
+		// We're done writing, so update the staticstics now
+		console.log(`uncompressedSize = ${this._db.size} after compress`);
+		this._uncompressedSize = this._db.size;
+		this.updateCompressBySizeThreshold();
+		this._changesSinceLastCompress = 0;
+		this._compressIntervalMinChangesExceeded = false;
+
 		// 3. Ensure there are no pending rename operations or file creations
 		await fsyncDir(path.dirname(this.filename));
 
@@ -1128,18 +1140,17 @@ export class JsonlDB<V = unknown> {
 		// 6. open the main DB file again in append mode
 		this._fd = await fs.open(this.filename, "a+");
 
-		// Remember the new statistics
-		this._uncompressedSize = this._db.size;
-		this._changesSinceLastCompress = 0;
+		// Reset the signals related to compressing the DB
 		this._compressBySizeNeeded.reset();
-		this.updateCompressBySizeThreshold();
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
 		if (!this._isOpen) return;
 
+		console.log("start compress");
 		await this.compressInternal();
+		console.log("end compress");
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */

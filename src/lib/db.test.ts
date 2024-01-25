@@ -1752,7 +1752,6 @@ describe("lib/db", () => {
 				await testFS.create({
 					[testFilename]: ``,
 				});
-				console.log(testFilenameFull);
 
 				db = new JsonlDB(testFilenameFull, {
 					enableTimestamps: true,
