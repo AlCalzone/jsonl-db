@@ -160,6 +160,9 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### 3.1.1 (2024-01-25)
+* Reduced CPU load while idle (#475)
+
 ### 3.1.0 (2023-03-15)
 * Support opt-out of updating timestamps for individual set calls (#415)
 
