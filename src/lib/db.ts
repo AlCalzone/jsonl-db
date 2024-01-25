@@ -330,15 +330,6 @@ export class JsonlDB<V = unknown> {
 	}
 
 	private triggerJournalFlush(): void {
-		console.log(
-			`triggerJournalFlush, intervalMs = ${
-				this.options.throttleFS?.intervalMs
-			}, intervalElapsed = ${
-				this._writeIntervalElapsed
-			}, exceeded buffer = ${this.exceededMaxBufferedCommands()}, journal length = ${
-				this._journal.length
-			}`,
-		);
 		// Trigger a flush...
 		if (
 			// ... immediately if writing isn't throttled
@@ -647,7 +638,6 @@ export class JsonlDB<V = unknown> {
 	}
 
 	public set(key: string, value: V, updateTimestamp: boolean = true): this {
-		console.log("set", key, value);
 		if (!this._isOpen) {
 			throw new Error("The database is not open!");
 		}
@@ -856,9 +846,6 @@ export class JsonlDB<V = unknown> {
 
 	private needToCompressBySize(): boolean {
 		if (!this._isOpen) return false;
-		console.log(
-			`uncompressedSize = ${this.uncompressedSize}, threshold = ${this._compressBySizeThreshold}, size = ${this.size}`,
-		);
 		return this._uncompressedSize >= this._compressBySizeThreshold;
 	}
 
@@ -952,13 +939,10 @@ export class JsonlDB<V = unknown> {
 
 			let task: PersistenceTask | undefined;
 			if (input === "flush journal") {
-				console.log("journal flushable");
 				task = { type: "write" };
 			} else if (input === "write") {
-				console.log("throttle sleep elapsed");
 				task = { type: "write" };
 			} else if (input === "compress") {
-				console.log("compress sleep elapsed");
 				// Need to compress
 				task = {
 					type: "compress",
@@ -969,17 +953,13 @@ export class JsonlDB<V = unknown> {
 				task.done.catch(() => {});
 			} else if (input === "task") {
 				task = this._persistenceTasks.shift();
-				console.log("received persistence task", task?.type);
 				// Reset the signal when there are no more tasks
 				if (!task) this._persistenceTaskSignal.reset();
 			}
 
-			console.log("task = ", task);
-
 			if (!task) continue;
 
 			let isStopCmd = false;
-			console.log("task.type = ", task.type);
 			switch (task.type) {
 				case "stop":
 					isStopCmd = true;
@@ -1021,7 +1001,6 @@ export class JsonlDB<V = unknown> {
 				case "dump": {
 					try {
 						await this.dumpInternal(task.filename, false);
-						console.log("dump done");
 						task.done.resolve();
 					} catch (e) {
 						task.done.reject(e);
@@ -1075,7 +1054,6 @@ export class JsonlDB<V = unknown> {
 			truncate = false;
 			if (updateStatistics) {
 				// Now the DB size is effectively 0 and we have no "uncompressed" changes pending
-				console.log("uncompressedSize = 0 during write");
 				this._uncompressedSize = 0;
 				this._changesSinceLastCompress = 0;
 			}
@@ -1085,9 +1063,6 @@ export class JsonlDB<V = unknown> {
 			serialized += entry.serialize() + "\n";
 			if (updateStatistics) {
 				this._uncompressedSize++;
-				console.log(
-					`increment uncompressedSize during write: ${this._uncompressedSize}`,
-				);
 				this._changesSinceLastCompress++;
 			}
 		}
@@ -1118,7 +1093,6 @@ export class JsonlDB<V = unknown> {
 		await this.dumpInternal(this.dumpFilename, true);
 
 		// We're done writing, so update the staticstics now
-		console.log(`uncompressedSize = ${this._db.size} after compress`);
 		this._uncompressedSize = this._db.size;
 		this.updateCompressBySizeThreshold();
 		this._changesSinceLastCompress = 0;
@@ -1147,10 +1121,7 @@ export class JsonlDB<V = unknown> {
 	/** Compresses the db by dumping it and overwriting the aof file. */
 	public async compress(): Promise<void> {
 		if (!this._isOpen) return;
-
-		console.log("start compress");
 		await this.compressInternal();
-		console.log("end compress");
 	}
 
 	/** Compresses the db by dumping it and overwriting the aof file. */
@@ -1180,8 +1151,6 @@ export class JsonlDB<V = unknown> {
 	public async close(): Promise<void> {
 		if (!this._isOpen) return;
 		this._isOpen = false;
-
-		console.log("close");
 
 		// Compress on close if required
 		if (this.options.autoCompress?.onClose) {
