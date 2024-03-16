@@ -33,7 +33,7 @@
   },
   "homepage": "https://github.com/AlCalzone/jsonl-db#readme",
   "devDependencies": {
-    "@alcalzone/release-script": "~3.5.9",
+    "@alcalzone/release-script": "~3.7.0",
     "@alcalzone/release-script-plugin-license": "~3.5.9",
     "@commitlint/cli": "^17.6.7",
     "@commitlint/config-conventional": "^17.6.5",
