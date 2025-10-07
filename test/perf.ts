@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-inferrable-types */
-import { padStart } from "alcalzone-shared/strings";
 import fs from "fs-extra";
-import { JsonlDB } from "../src";
+import { JsonlDB } from "../src/index.js";
 
 process.on("unhandledRejection", (_r) => {
 	debugger;
@@ -108,11 +106,9 @@ async function testSmall(enableTimestamps: boolean = false) {
 
 		const start = Date.now();
 		for (let i = 0; i < NUM_CHANGES; i++) {
-			const key = `k${padStart(
-				Math.round(Math.random() * NUM_KEYS).toString(),
-				5,
-				"0",
-			)}`;
+			const key = `k${Math.round(Math.random() * NUM_KEYS)
+				.toString()
+				.padStart(5, "0")}`;
 			if (Math.random() < 0.15) {
 				testDB.delete(key);
 			} else {

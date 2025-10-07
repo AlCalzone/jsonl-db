@@ -4,11 +4,10 @@ import {
 	createDeferredPromise,
 	DeferredPromise,
 } from "alcalzone-shared/deferred-promise";
-import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as readline from "readline";
-import { Signal } from "./signal";
+import { Signal } from "./signal.js";
 
 export interface JsonlDBOptions<V> {
 	/**
@@ -403,7 +402,7 @@ export class JsonlDB<V = unknown> {
 					// do nothing
 				},
 			});
-		} catch (e) {
+		} catch {
 			throw new Error(`Failed to lock DB file "${this.lockfileName}"!`);
 		}
 
@@ -436,7 +435,7 @@ export class JsonlDB<V = unknown> {
 						// Extract the key and only remember the last line for each one
 						const key = this.parseKey(line);
 						actualLines.set(key, [lineNo, line]);
-					} catch (e) {
+					} catch {
 						if (this.options.ignoreReadErrors === true) {
 							return;
 						} else {
@@ -453,7 +452,7 @@ export class JsonlDB<V = unknown> {
 					for (const [lineNo, line] of actualLines.values()) {
 						try {
 							this.parseLine(line);
-						} catch (e) {
+						} catch {
 							if (this.options.ignoreReadErrors === true) {
 								continue;
 							} else {
@@ -700,7 +699,11 @@ export class JsonlDB<V = unknown> {
 		if (!this._isOpen) {
 			return Promise.reject(new Error("The database is not open!"));
 		}
-		return fs.writeJSON(filename, composeObject([...this._db]), options);
+		return fs.writeJSON(
+			filename,
+			Object.fromEntries([...this._db]),
+			options,
+		);
 	}
 
 	private entryToLine(key: string, value?: V, timestamp?: number): string {
@@ -949,7 +952,7 @@ export class JsonlDB<V = unknown> {
 					done: createDeferredPromise(),
 				};
 				// but catch errors!
-				// eslint-disable-next-line @typescript-eslint/no-empty-function
+
 				task.done.catch(() => {});
 			} else if (input === "task") {
 				task = this._persistenceTasks.shift();

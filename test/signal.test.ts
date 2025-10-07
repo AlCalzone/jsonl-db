@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Signal } from "./signal";
+import { Signal } from "../src/lib/signal.js";
 
 describe("signal", () => {
 	it("can be awaited and resolves immediately when set", async () => {
