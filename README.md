@@ -139,20 +139,17 @@ db.set("key", "value", false); // Don't update the timestamp
 
 ### Import / Export
 
-Importing JSON files can be done this way:
+Importing structured data into the database can be done the following way:
 ```ts
-// pass a filename, the import will be asynchronous
-await db.importJson(filename);
 // pass the object directly, the import will be synchronous
-db.importJson({key: "value"});
+db.importJSON({key: "value"});
 ```
-In both cases, existing entries in the DB will not be deleted but will be overwritten if they exist.
+Existing entries in the DB will not be deleted but will be overwritten if they exist.
 
-Exporting JSON files is also possible:
+Exporting the data as a JSON object is also possible:
 ```ts
-await db.exportJson(filename[, options]);
+const json = db.toJSON();
 ```
-The file will be overwritten if it exists. The 2nd options argument can be used to control the file formatting. Since `fs-extra`'s `writeJson` is used under the hood, take a look at that [method documentation](https://github.com/jprichardson/node-fs-extra/blob/master/docs/writeJson.md) for details on the options object.
 
 ## Changelog
 
@@ -160,6 +157,13 @@ The file will be overwritten if it exists. The 2nd options argument can be used 
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
+### __WORK IN PROGRESS__
+* BREAKING: Drop support for Node.js versions older than v22 (#529)
+* BREAKING: Removed `exportJson` method in favor of `toJSON`
+* BREAKING: Renamed `importJson` method to `importJSON`. Importing from a file is no longer supported. Read the file yourself if you need this functionality.
+* Filesystem access is now done using the native `fs.promises` instead of `fs-extra`
+* The package is now a hybrid ESM/CJS package (#529)
+
 ### 3.1.1 (2024-01-25)
 * Reduced CPU load while idle (#475)
 
