@@ -1,9 +1,18 @@
 import { wait } from "alcalzone-shared/async";
-import * as fs from "fs-extra";
+import * as fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JsonlDB } from "../src/lib/db.js";
 import { TestFS } from "./testFs.js";
+
+async function pathExists(path: string): Promise<boolean> {
+	try {
+		await fs.access(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
@@ -21,33 +30,57 @@ async function retry(times: number, test: () => Promise<void>): Promise<void> {
 	}
 }
 
-vi.mock("fs-extra", async () => {
-	const originalFS = (await vi.importActual<any>("fs-extra")).default;
+vi.mock("node:fs/promises", async () => {
+	const originalFS = await vi.importActual<any>("node:fs/promises");
 	// eslint-disable-next-line @typescript-eslint/no-var-requires
 	const wait = require("alcalzone-shared/async").wait;
+
+	// Wrap the FileHandle methods to add throttling
+	const wrapFileHandle = (fh: any) => {
+		return new Proxy(fh, {
+			get(target: any, prop: string) {
+				if (prop === "appendFile") {
+					return async (...args: any[]) => {
+						if (mockAppendFileThrottle > 0) {
+							await wait(mockAppendFileThrottle);
+						}
+						return target[prop](...args);
+					};
+				}
+				return target[prop];
+			},
+		});
+	};
+
 	return {
-		__esModule: true, // Use it when dealing with esModules
+		__esModule: true,
 		...originalFS,
-		appendFile: vi.fn().mockImplementation(async (...args: any[]) => {
-			if (mockAppendFileThrottle > 0) {
-				await wait(mockAppendFileThrottle);
-			}
-			return originalFS.appendFile(...args);
+		open: vi.fn().mockImplementation(async (...args: any[]) => {
+			const fh = await originalFS.open(...args);
+			return wrapFileHandle(fh);
 		}),
-		move: vi.fn().mockImplementation(async (...args: any[]) => {
+		rename: vi.fn().mockImplementation(async (...args: any[]) => {
 			if (mockMoveFileThrottle > 0) {
 				await wait(mockMoveFileThrottle);
 			}
-			return originalFS.move(...args);
+			return originalFS.rename(...args);
 		}),
+	};
+});
+
+vi.mock("node:fs", async () => {
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	const originalFsSync = await vi.importActual<any>("node:fs");
+	// eslint-disable-next-line @typescript-eslint/no-var-requires
+	const fsSync = require("node:fs");
+	return {
+		__esModule: true,
+		...originalFsSync,
 		createReadStream: vi.fn().mockImplementation((path, options) => {
 			// eslint-disable-next-line @typescript-eslint/no-var-requires
 			const { PassThrough } = require("stream");
 			const { /*fd,*/ encoding } = options;
-			// const file = fd
-			// 	? originalFS.readFileSync(fd, encoding)
-			// 	: originalFS.readFileSync(path, encoding);
-			const file = originalFS.readFileSync(path, encoding);
+			const file = fsSync.readFileSync(path, encoding);
 			const ret = new PassThrough();
 			ret.write(file, encoding, () => {
 				ret.end();
@@ -298,7 +331,7 @@ describe("lib/db", () => {
 			await db.open();
 			await db.close();
 
-			await expect(fs.pathExists(lockfileDirectory)).resolves.toBe(true);
+			await expect(pathExists(lockfileDirectory)).resolves.toBe(true);
 		});
 
 		it("reads the file if it exists", async () => {
@@ -606,14 +639,13 @@ describe("lib/db", () => {
 			await testFS.remove();
 		});
 
-		it("both versions throw when the DB is not open", async () => {
+		it("throws when the DB is not open", async () => {
 			await db.close();
-			expect(() => db.importJson({})).toThrowError("not open");
-			await expect(db.importJson("")).rejects.toThrow();
+			expect(() => db.importJSON({})).toThrowError("not open");
 		});
 
-		it("the object version adds all keys and values to the database", async () => {
-			db.importJson({
+		it("adds all keys and values to the database", async () => {
+			db.importJSON({
 				foo: "bar",
 				baz: "inga",
 				"1": 1,
@@ -628,21 +660,6 @@ describe("lib/db", () => {
 {"k":"1","v":1}
 {"k":"foo","v":"bar"}
 {"k":"baz","v":"inga"}
-`,
-			);
-		});
-
-		it("the file version asynchronously adds all keys and values to the database", async () => {
-			await db.importJson(jsonFilenameFull);
-			// Force the stream to be flushed
-			await db.close();
-
-			// The order changes because Object.entries reads the entries in a different order
-			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
-				`{"k":"key1","v":1}
-{"k":"key2","v":"2"}
-{"k":"key3","v":1}
-{"k":"key4","v":true}
 `,
 			);
 		});
@@ -675,24 +692,15 @@ describe("lib/db", () => {
 
 		it("throws when the DB is not open", async () => {
 			await db.close();
-			await expect(db.exportJson(jsonFilenameFull)).rejects.toThrow();
+			expect(() => db.toJSON()).toThrowError("not open");
 		});
 
-		it("overwrites the given file with the DB contents as valid JSON", async () => {
-			await db.exportJson(jsonFilenameFull);
-			await expect(fs.readFile(jsonFilenameFull, "utf8")).resolves.toBe(
-				`{"key1":1,"key2":"2"}\n`,
-			);
-		});
-
-		it("honors the JSON formatting options", async () => {
-			await db.exportJson(jsonFilenameFull, { spaces: "\t" });
-			await expect(fs.readFile(jsonFilenameFull, "utf8")).resolves.toBe(
-				`{
-	"key1": 1,
-	"key2": "2"
-}\n`,
-			);
+		it("returns the DB contents as valid JSON", async () => {
+			const actual = db.toJSON();
+			expect(actual).toEqual({
+				key1: 1,
+				key2: "2",
+			});
 		});
 	});
 
@@ -850,12 +858,12 @@ describe("lib/db", () => {
 			await expect(fs.readFile(testFilenameFull, "utf8")).resolves.toBe(
 				'{"k":"key1","v":1}\n{"k":"key3","v":3.5}\n',
 			);
-			await expect(
-				fs.pathExists(testFilenameFull + ".dump"),
-			).resolves.toBe(false);
-			await expect(
-				fs.pathExists(testFilenameFull + ".bak"),
-			).resolves.toBe(false);
+			await expect(pathExists(testFilenameFull + ".dump")).resolves.toBe(
+				false,
+			);
+			await expect(pathExists(testFilenameFull + ".bak")).resolves.toBe(
+				false,
+			);
 		});
 
 		it("after compresing, writing works as usual", async () => {
@@ -1553,13 +1561,13 @@ describe("lib/db", () => {
 
 		async function assertCleanedUp() {
 			// The other files should have been cleaned up
-			await expect(fs.pathExists(testFilenameFull)).resolves.toBe(true);
-			await expect(
-				fs.pathExists(testFilenameFull + ".bak"),
-			).resolves.toBe(false);
-			await expect(
-				fs.pathExists(testFilenameFull + ".dump"),
-			).resolves.toBe(false);
+			await expect(pathExists(testFilenameFull)).resolves.toBe(true);
+			await expect(pathExists(testFilenameFull + ".bak")).resolves.toBe(
+				false,
+			);
+			await expect(pathExists(testFilenameFull + ".dump")).resolves.toBe(
+				false,
+			);
 		}
 
 		it("db truncated, .bak ok -> use .bak", async () => {

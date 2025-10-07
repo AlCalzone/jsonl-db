@@ -1,4 +1,4 @@
-import fs from "fs-extra";
+import * as fs from "node:fs/promises";
 import { JsonlDB } from "../src/index.js";
 
 process.on("unhandledRejection", (_r) => {
@@ -44,7 +44,7 @@ async function testMedium(enableTimestamps: boolean = false) {
 	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
-		await fs.remove("test.jsonl");
+		await fs.rm("test.jsonl", { force: true, recursive: true });
 
 		await testDB.open();
 
@@ -63,7 +63,7 @@ async function testMedium(enableTimestamps: boolean = false) {
 		process.stdout.write(".");
 	}
 
-	await fs.remove("test.jsonl");
+	await fs.rm("test.jsonl", { force: true, recursive: true });
 
 	process.stdout.write("\n\n");
 
@@ -100,7 +100,7 @@ async function testSmall(enableTimestamps: boolean = false) {
 	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
-		await fs.remove("test.jsonl");
+		await fs.rm("test.jsonl", { force: true, recursive: true });
 
 		await testDB.open();
 
@@ -123,7 +123,7 @@ async function testSmall(enableTimestamps: boolean = false) {
 		process.stdout.write(".");
 	}
 
-	await fs.remove("test.jsonl");
+	await fs.rm("test.jsonl", { force: true, recursive: true });
 
 	process.stdout.write("\n\n");
 
@@ -177,7 +177,7 @@ async function testDelete(enableTimestamps: boolean = false) {
 	);
 
 	for (let pass = 1; pass <= NUM_PASSES; pass++) {
-		await fs.remove("test.jsonl");
+		await fs.rm("test.jsonl", { force: true, recursive: true });
 
 		await testDB.open();
 
@@ -201,7 +201,7 @@ async function testDelete(enableTimestamps: boolean = false) {
 		process.stdout.write(".");
 	}
 
-	await fs.remove("test.jsonl");
+	await fs.rm("test.jsonl", { force: true, recursive: true });
 
 	process.stdout.write("\n\n");
 
@@ -224,7 +224,7 @@ testSmall(false)
 	.then(() => testDelete(false))
 	.then(() => testDelete(true))
 	.catch(console.error)
-	.finally(() => fs.remove("test.jsonl"))
+	.finally(() => fs.rm("test.jsonl", { force: true, recursive: true }))
 	.catch(() => {
 		/* ignore */
 	});

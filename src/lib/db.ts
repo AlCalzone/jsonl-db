@@ -4,10 +4,19 @@ import {
 	createDeferredPromise,
 	DeferredPromise,
 } from "alcalzone-shared/deferred-promise";
-import * as fs from "fs-extra";
+import type { FileHandle } from "node:fs/promises";
+import * as fs from "node:fs/promises";
 import * as path from "path";
 import * as readline from "readline";
 import { Signal } from "./signal.js";
+
+async function ensureDir(dirPath: string): Promise<void> {
+	await fs.mkdir(dirPath, { recursive: true });
+}
+
+async function remove(filePath: string): Promise<void> {
+	await fs.rm(filePath, { recursive: true, force: true });
+}
 
 export interface JsonlDBOptions<V> {
 	/**
@@ -101,17 +110,6 @@ export interface JsonlDBOptions<V> {
 	lockfileDirectory?: string;
 }
 
-/** This is the same as `fs-extra`'s WriteOptions */
-export interface FsWriteOptions {
-	encoding?: string | null;
-	flag?: string;
-	mode?: number;
-	fs?: object;
-	replacer?: any;
-	spaces?: number | string;
-	EOL?: string;
-}
-
 enum Operation {
 	Clear = 0,
 	Write = 1,
@@ -163,8 +161,8 @@ async function fsyncDir(dirname: string): Promise<void> {
 
 	if (process.platform === "win32") return;
 	const fd = await fs.open(dirname, "r");
-	await fs.fsync(fd);
-	await fs.close(fd);
+	await fd.sync();
+	await fd.close();
 }
 
 function getCurrentErrorStack(): string {
@@ -355,7 +353,7 @@ export class JsonlDB<V = unknown> {
 	private _persistenceTaskSignal = new Signal();
 
 	private _journal: LazyEntry<V>[] = [];
-	private _fd: number | undefined;
+	private _handle: FileHandle | undefined;
 
 	private drainJournal(): LazyEntry<V>[] {
 		return this._journal.splice(0, this._journal.length);
@@ -370,7 +368,7 @@ export class JsonlDB<V = unknown> {
 	// /** Opens the database file or creates it if it doesn't exist */
 	public async open(): Promise<void> {
 		// Open the file for appending and reading
-		await fs.ensureDir(path.dirname(this.filename));
+		await ensureDir(path.dirname(this.filename));
 
 		let retryOptions: lockfile.LockOptions["retries"];
 		if (this.options.lockfile?.retries) {
@@ -384,7 +382,7 @@ export class JsonlDB<V = unknown> {
 		}
 
 		try {
-			await fs.ensureDir(path.dirname(this.lockfileName));
+			await ensureDir(path.dirname(this.lockfileName));
 			await lockfile.lock(this.lockfileName, {
 				// We cannot be sure that the file exists before acquiring the lock
 				realpath: false,
@@ -409,10 +407,9 @@ export class JsonlDB<V = unknown> {
 		// If the application crashed previously, try to recover from it
 		await this.tryRecoverDBFiles();
 
-		this._fd = await fs.open(this.filename, "a+");
-		const readStream = fs.createReadStream(this.filename, {
+		this._handle = await fs.open(this.filename, "a+");
+		const readStream = this._handle.createReadStream({
 			encoding: "utf8",
-			fd: this._fd,
 			autoClose: false,
 		});
 		const rl = readline.createInterface(readStream);
@@ -470,8 +467,8 @@ export class JsonlDB<V = unknown> {
 		} finally {
 			// Close the file again to avoid EBADF
 			rl.close();
-			await fs.close(this._fd);
-			this._fd = undefined;
+			await this._handle.close();
+			this._handle = undefined;
 		}
 
 		this.updateCompressBySizeThreshold();
@@ -509,12 +506,12 @@ export class JsonlDB<V = unknown> {
 		// Prefer the DB file if it exists, remove the others in case they exist
 		if (dbFileIsOK) {
 			try {
-				await fs.remove(this.backupFilename);
+				await remove(this.backupFilename);
 			} catch {
 				// ignore
 			}
 			try {
-				await fs.remove(this.dumpFilename);
+				await remove(this.dumpFilename);
 			} catch {
 				// ignore
 			}
@@ -533,11 +530,9 @@ export class JsonlDB<V = unknown> {
 		if (bakFileIsOK) {
 			// Overwrite the broken db file with it and delete the dump file
 			try {
-				await fs.move(this.backupFilename, this.filename, {
-					overwrite: true,
-				});
+				await fs.rename(this.backupFilename, this.filename);
 				try {
-					await fs.remove(this.dumpFilename);
+					await remove(this.dumpFilename);
 				} catch {
 					// ignore
 				}
@@ -558,11 +553,9 @@ export class JsonlDB<V = unknown> {
 		if (dumpFileIsOK) {
 			try {
 				// Overwrite the broken db file with the dump file and delete the backup file
-				await fs.move(this.dumpFilename, this.filename, {
-					overwrite: true,
-				});
+				await fs.rename(this.dumpFilename, this.filename);
 				try {
-					await fs.remove(this.backupFilename);
+					await remove(this.backupFilename);
 				} catch {
 					// ignore
 				}
@@ -661,28 +654,12 @@ export class JsonlDB<V = unknown> {
 		return this;
 	}
 
-	private async importJsonFile(filename: string): Promise<void> {
-		const json = await fs.readJSON(filename);
-		return this.importJson(json);
-	}
-
-	public importJson(filename: string): Promise<void>;
-	public importJson(json: Record<string, any>): void;
-	public importJson(
-		jsonOrFile: Record<string, any> | string,
-	): void | Promise<void> {
-		if (typeof jsonOrFile === "string") {
-			if (!this._isOpen) {
-				return Promise.reject(new Error("The database is not open!"));
-			}
-			return this.importJsonFile(jsonOrFile);
-		} else {
-			if (!this._isOpen) {
-				throw new Error("The database is not open!");
-			}
+	public importJSON(json: Record<string, V>): void {
+		if (!this._isOpen) {
+			throw new Error("The database is not open!");
 		}
 
-		for (const [key, value] of Object.entries(jsonOrFile)) {
+		for (const [key, value] of Object.entries(json)) {
 			// Importing JSON does not have timestamp information
 			this._db.set(key, value);
 			this._journal.push(this.makeLazyWrite(key, value));
@@ -692,18 +669,11 @@ export class JsonlDB<V = unknown> {
 		this.triggerJournalFlush();
 	}
 
-	public async exportJson(
-		filename: string,
-		options?: FsWriteOptions,
-	): Promise<void> {
+	public toJSON(): Record<string, V> {
 		if (!this._isOpen) {
-			return Promise.reject(new Error("The database is not open!"));
+			throw new Error("The database is not open!");
 		}
-		return fs.writeJSON(
-			filename,
-			Object.fromEntries([...this._db]),
-			options,
-		);
+		return Object.fromEntries([...this._db]);
 	}
 
 	private entryToLine(key: string, value?: V, timestamp?: number): string {
@@ -797,7 +767,7 @@ export class JsonlDB<V = unknown> {
 				serialized += this.entryToLine(key, value) + "\n";
 			}
 		}
-		await fs.appendFile(fd, serialized);
+		await fd.appendFile(serialized);
 
 		// In case there is any new data in the journal, persist that too
 		let journal = drainJournal
@@ -806,7 +776,7 @@ export class JsonlDB<V = unknown> {
 		journal = journal.slice(journalLength);
 		await this.writeJournalToFile(fd, journal, false);
 
-		await fs.close(fd);
+		await fd.close();
 	}
 
 	/**
@@ -873,7 +843,7 @@ export class JsonlDB<V = unknown> {
 		let lastCompress = Date.now();
 
 		// Open the file for appending and reading
-		this._fd = await fs.open(this.filename, "a+");
+		this._handle = await fs.open(this.filename, "a+");
 		this._openPromise?.resolve();
 
 		while (true) {
@@ -976,16 +946,16 @@ export class JsonlDB<V = unknown> {
 					if (shouldWrite) {
 						// Drain the journal
 						const journal = this.drainJournal();
-						this._fd = await this.writeJournalToFile(
-							this._fd,
+						this._handle = await this.writeJournalToFile(
+							this._handle,
 							journal,
 						);
 						lastWrite = Date.now();
 					}
 
 					if (isStopCmd) {
-						await fs.close(this._fd);
-						this._fd = undefined;
+						await this._handle.close();
+						this._handle = undefined;
 						return;
 					} else {
 						// Since we wrote something, the uncompressed size may have changed
@@ -1027,10 +997,10 @@ export class JsonlDB<V = unknown> {
 
 	/** Writes the given journal to the given file descriptor. Returns the new file descriptor if the file was re-opened during the process */
 	private async writeJournalToFile(
-		fd: number,
+		fd: FileHandle,
 		journal: LazyEntry<V>[],
 		updateStatistics: boolean = true,
-	): Promise<number> {
+	): Promise<FileHandle> {
 		// The chunk map is used to buffer all entries that are currently waiting in line
 		// so we avoid serializing redundant entries. When the writing is throttled,
 		// the chunk map will only be used for a short time.
@@ -1052,7 +1022,7 @@ export class JsonlDB<V = unknown> {
 		if (truncate) {
 			// Since we opened the file in append mode, we cannot truncate
 			// therefore close and open in write mode again
-			await fs.close(fd);
+			await fd.close();
 			fd = await fs.open(this.filename, "w+");
 			truncate = false;
 			if (updateStatistics) {
@@ -1070,8 +1040,8 @@ export class JsonlDB<V = unknown> {
 			}
 		}
 		// and write once, making sure everything is written
-		await fs.appendFile(fd, serialized);
-		await fs.fsync(fd);
+		await fd.appendFile(serialized);
+		await fd.sync();
 
 		// Reset the signals related to writing the journal
 		this._journalFlushable.reset();
@@ -1088,9 +1058,9 @@ export class JsonlDB<V = unknown> {
 	private async doCompress(): Promise<void> {
 		// 1. Ensure the backup contains everything in the DB and journal
 		const journal = this.drainJournal();
-		this._fd = await this.writeJournalToFile(this._fd!, journal);
-		await fs.close(this._fd);
-		this._fd = undefined;
+		this._handle = await this.writeJournalToFile(this._handle!, journal);
+		await this._handle.close();
+		this._handle = undefined;
 
 		// 2. Create a dump, draining the journal to avoid duplicate writes
 		await this.dumpInternal(this.dumpFilename, true);
@@ -1105,17 +1075,15 @@ export class JsonlDB<V = unknown> {
 		await fsyncDir(path.dirname(this.filename));
 
 		// 4. Swap files around, then ensure the directory entries are written to disk
-		await fs.move(this.filename, this.backupFilename, {
-			overwrite: true,
-		});
-		await fs.move(this.dumpFilename, this.filename, { overwrite: true });
+		await fs.rename(this.filename, this.backupFilename);
+		await fs.rename(this.dumpFilename, this.filename);
 		await fsyncDir(path.dirname(this.filename));
 
 		// 5. Delete backup
 		await fs.unlink(this.backupFilename);
 
 		// 6. open the main DB file again in append mode
-		this._fd = await fs.open(this.filename, "a+");
+		this._handle = await fs.open(this.filename, "a+");
 
 		// Reset the signals related to compressing the DB
 		this._compressBySizeNeeded.reset();

@@ -4,10 +4,10 @@ import { vi } from "vitest";
 
 /** Class to manage an isolated test "filesystem" for unit tests */
 export class TestFS {
-	private _fs: undefined | typeof import("fs-extra");
-	private async fs(): Promise<typeof import("fs-extra")> {
+	private _fs: undefined | typeof import("node:fs/promises");
+	private async fs(): Promise<typeof import("node:fs/promises")> {
 		if (!this._fs) {
-			this._fs = await vi.importActual("fs-extra");
+			this._fs = await vi.importActual("node:fs/promises");
 		}
 		return this._fs!;
 	}
@@ -35,15 +35,18 @@ export class TestFS {
 	async create(structure: Record<string, string | null> = {}): Promise<void> {
 		const root = await this.getRoot();
 		const fs = await this.fs();
-		await fs.emptyDir(root);
+		await fs.rm(root, { recursive: true, force: true }).catch(() => {});
+		await fs.mkdir(root, { recursive: true });
 		for (const [filename, content] of Object.entries(structure)) {
 			const normalizedFilename = this.normalizePath(root, filename);
 			if (content === null) {
 				// this is a directory
-				await fs.ensureDir(normalizedFilename);
+				await fs.mkdir(normalizedFilename, { recursive: true });
 			} else {
 				// this is a file
-				await fs.ensureDir(path.dirname(normalizedFilename));
+				await fs.mkdir(path.dirname(normalizedFilename), {
+					recursive: true,
+				});
 				await fs.writeFile(normalizedFilename, content, "utf8");
 			}
 		}
@@ -53,6 +56,6 @@ export class TestFS {
 	async remove(): Promise<void> {
 		if (!this.testFsRoot) return;
 		const fs = await this.fs();
-		await fs.remove(this.testFsRoot);
+		await fs.rm(this.testFsRoot, { recursive: true, force: true });
 	}
 }
