@@ -79,7 +79,7 @@
     "test": "npm run test:watch",
     "coverage": "vitest run --coverage",
     "show-coverage": "npm run coverage && start ./coverage/index.html",
-    "lint:ts": "eslint --ext .ts src",
+    "lint:ts": "eslint src",
     "lint": "npm run lint:ts",
     "commit": "git-cz",
     "release": "release-script",
