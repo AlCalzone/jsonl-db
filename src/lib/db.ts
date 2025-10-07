@@ -4,11 +4,10 @@ import {
 	createDeferredPromise,
 	DeferredPromise,
 } from "alcalzone-shared/deferred-promise";
-import { composeObject } from "alcalzone-shared/objects";
 import * as fs from "fs-extra";
 import * as path from "path";
 import * as readline from "readline";
-import { Signal } from "./signal";
+import { Signal } from "./signal.js";
 
 export interface JsonlDBOptions<V> {
 	/**
@@ -700,7 +699,7 @@ export class JsonlDB<V = unknown> {
 		if (!this._isOpen) {
 			return Promise.reject(new Error("The database is not open!"));
 		}
-		return fs.writeJSON(filename, composeObject([...this._db]), options);
+		return fs.writeJSON(filename, Object.fromEntries([...this._db]), options);
 	}
 
 	private entryToLine(key: string, value?: V, timestamp?: number): string {

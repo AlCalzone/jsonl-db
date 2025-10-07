@@ -1,9 +1,9 @@
 import { wait } from "alcalzone-shared/async";
 import * as fs from "fs-extra";
-import path from "path";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestFS } from "../../test/testFs";
-import { JsonlDB } from "./db";
+import { JsonlDB } from "../src/lib/db.js";
+import { TestFS } from "./testFs.js";
 
 let mockAppendFileThrottle = 0;
 let mockMoveFileThrottle = 0;
@@ -1546,6 +1546,7 @@ describe("lib/db", () => {
 		});
 
 		afterEach(async () => {
+			// @ts-expect-error
 			if (db) await db.close();
 			await testFS.remove();
 		});

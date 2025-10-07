@@ -1,26 +1,22 @@
 {
-	"extends": "@tsconfig/node14/tsconfig.json",
+	"extends": "@tsconfig/node22/tsconfig.json",
 	"compilerOptions": {
-		// What to output
-		"noEmit": true,
+		"rootDir": "src",
+		"outDir": "build/esm",
+		"noEmitOnError": true,
+		"declaration": true,
+		"declarationMap": true,
 		"removeComments": false,
-		"stripInternal": true,
-		"declaration": false,
-		"outDir": "build/",
 		"sourceMap": true,
 		"inlineSourceMap": false,
-		// What to do with errors
-		"importsNotUsedAsValues": "error",
-		"noEmitOnError": true,
-		// Misc options
-		"pretty": true,
+		"stripInternal": true,
 		"types": [
-			"node",
+			"node"
 		],
+		"pretty": true,
 	},
 	"include": [
-		"src/**/*.ts",
-		"test/**/*.ts"
+		"src/**/*.ts"
 	],
 	"exclude": [
 		"build/**",
