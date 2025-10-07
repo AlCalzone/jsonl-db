@@ -158,11 +158,11 @@ const json = db.toJSON();
 	### __WORK IN PROGRESS__
 -->
 ### __WORK IN PROGRESS__
-* BREAKING: Drop support for Node.js versions older than v22 (#529)
+* BREAKING: Drop support for Node.js versions older than v20
 * BREAKING: Removed `exportJson` method in favor of `toJSON`
 * BREAKING: Renamed `importJson` method to `importJSON`. Importing from a file is no longer supported. Read the file yourself if you need this functionality.
 * Filesystem access is now done using the native `fs.promises` instead of `fs-extra`
-* The package is now a hybrid ESM/CJS package (#529)
+* The package is now a hybrid ESM/CJS package
 
 ### 3.1.1 (2024-01-25)
 * Reduced CPU load while idle (#475)
