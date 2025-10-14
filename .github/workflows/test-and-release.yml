@@ -17,7 +17,7 @@ on:
 
 permissions:
   id-token: write # Required for publishing with OICD
-  contents: read  # Required for creating releases
+  contents: write  # Required for creating releases
 
 jobs:
   # Performs quick checks before the expensive test runs
