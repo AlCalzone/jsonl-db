@@ -15,6 +15,10 @@ on:
           - "v[0-9]+.[0-9]+.[0-9]+-**"
     pull_request: {}
 
+permissions:
+  id-token: write # Required for publishing with OICD
+  contents: read  # Required for creating releases
+
 jobs:
   # Performs quick checks before the expensive test runs
   check-and-lint:
@@ -98,6 +102,10 @@ jobs:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
 
+    # Ensure npm 11.5.1 or later is installed
+    - name: Update npm
+      run: npm install -g npm@latest
+
     - name: Extract the version and commit body from the tag
       id: extract_release
       # The body may be multiline, therefore we need to escape some characters
@@ -121,10 +129,7 @@ jobs:
       run: npm run build
 
     - name: Publish package to npm
-      run: |
-        npm config set //registry.npmjs.org/:_authToken=${{ secrets.NPM_TOKEN }}
-        npm whoami
-        npm publish
+      run: npm publish
 
     - name: Create Github Release
       uses: softprops/action-gh-release@v2
