@@ -157,7 +157,7 @@ const json = db.toJSON();
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 4.0.1 (2025-10-14)
 * Fixes an issue where the application could run out of memory if a custom serializer threw an error during the automatic compression
 
 ### 4.0.0 (2025-10-07)
