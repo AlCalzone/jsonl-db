@@ -679,7 +679,14 @@ export class JsonlDB<V = unknown> {
 	private entryToLine(key: string, value?: V, timestamp?: number): string {
 		if (value !== undefined) {
 			const k = key;
-			const v = this.options.serializer?.(key, value) ?? value;
+			let v: any;
+			try {
+				v = this.options.serializer?.(key, value);
+			} catch {
+				// This can happen when the application defines an invalid serializer
+				// In this case simply preserve the raw value, so the issue can be fixed without data loss
+			}
+			v ??= value;
 
 			if (this.options.enableTimestamps && timestamp !== undefined) {
 				return JSON.stringify({ k, v, ts: timestamp });
@@ -987,6 +994,11 @@ export class JsonlDB<V = unknown> {
 						lastCompress = Date.now();
 						task.done?.resolve();
 					} catch (e) {
+						// On error we're likely left with a closed DB file handle, causing further issues.
+						// Attempt to at least reopen the file
+						if (!this._handle) {
+							this._handle = await fs.open(this.filename, "a+");
+						}
 						task.done?.reject(e);
 					}
 					break;
