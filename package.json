@@ -11,7 +11,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "build/**/*.{js,d.ts,map}"
+    "build/**/*.{js,d.ts,map}",
+    "build/**/package.json"
   ],
   "repository": {
     "type": "git",
