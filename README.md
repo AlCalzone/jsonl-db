@@ -157,7 +157,7 @@ const json = db.toJSON();
 	Placeholder for next release:
 	### __WORK IN PROGRESS__
 -->
-### __WORK IN PROGRESS__
+### 4.0.2 (2025-10-15)
 * Fixed CommonJS import
 
 ### 4.0.1 (2025-10-14)
