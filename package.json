@@ -45,7 +45,7 @@
     "@alcalzone/release-script-plugin-license": "~3.7.0",
     "@commitlint/cli": "^20.1.0",
     "@commitlint/config-conventional": "^20.0.0",
-    "@tsconfig/node20": "^20.1.6",
+    "@tsconfig/node22": "^22.0.0",
     "@types/node": "^22.18.8",
     "@types/proper-lockfile": "^4.1.2",
     "@vitest/coverage-istanbul": "^3.2.4",
